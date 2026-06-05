@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# DENY BY DEFAULT.  Ignore everything at the repo root, then re-include ONLY the
+# reusable system (the parts that should travel with a clone). Anything not on
+# the allowlist below — new scratch dirs, training logs, caches, secrets — is
+# ignored automatically and can never be accidentally committed or pushed.
+#
+# To commit something new at the root, you must add an explicit `!` exception.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 1) ignore everything at the root
+/*
+
+# 2) re-include the dirs we ship (git then recurses into them; junk inside is
+#    re-excluded in section 4)
+!/.claude/
+!/comps/
+!/docs/
+!/tools/
+
+# 3) re-include the root files we ship
+!/.gitignore
+!/CLAUDE.md
+!/MEMORY.md
+!/README.md
+!/pyproject.toml
+!/uv.lock
+
+# 4) within the re-included dirs, exclude local/machine-specific junk
+#    per-competition work is entirely local — keep only the placeholder
+comps/*
+!comps/.gitkeep
+#    personal/local Claude Code settings (machine-specific)
+.claude/settings.local.json
+#    python caches / build artifacts anywhere
+__pycache__/
+*.pyc
+*.egg-info/
+.ipynb_checkpoints/
+#    model/data blobs that might land inside a shipped dir
+*.parquet
+*.ckpt
+*.pt
+
+# 5) defense-in-depth: secrets stay ignored even if section 1 is ever loosened
+.env
+.env.*
+*.env
+kaggle.json
+.kaggle/
