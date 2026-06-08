@@ -167,6 +167,12 @@ to **the deepest ancestor(s) whose work it keeps**:
 - **Keep ≥2 families alive.** If the best lineage hasn't beaten CV by more than
   fold-noise over **5 improves**, force a new **draft** of a different approach —
   pivot the architecture, don't keep tuning.
+- **When the score has been stale across many experiments, look outside.** A long
+  plateau usually means under-built, not capped — pull a top public notebook
+  (`kaggle kernels pull`) and diff your approach against it, scan the comp's Kaggle
+  discussions for the winning recipe, or search the web / arXiv for the relevant
+  method. Bring back one concrete lever and draft it; don't keep grinding variants
+  in the dark.
 
 ### `graph.md` — the map you read first
 One file per comp. **Read it to orient; edit it by hand on every node event**
