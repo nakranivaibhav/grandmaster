@@ -13,7 +13,7 @@ export const meta = {
 //   slug        — competition slug (comps/<slug>/ already validated + baselined)
 //   nProposals  — proposals the proposer drafts (default 3)
 //   maxIters    — max critique→revise cycles before returning (default 2)
-// Returns { proposals:[{slot, op, parents, parent_src, family, desc, change, hypothesis, target}], all_good, note }.
+// Returns { proposals:[{slot, op, parents, parent_src, family, desc, uses_data, change, context, hypothesis, target}], all_good, note }.
 // ---------------------------------------------------------------------------
 const SLUG = args.slug
 const N = Math.max(1, args.nProposals || 3)
@@ -29,7 +29,7 @@ Graph: ${ROOT}/graph.md. Journal: ${ROOT}/journal.md. Cross-comp lessons: MEMORY
 
 const PROPOSAL = {
   type: 'object', additionalProperties: false,
-  required: ['slot', 'op', 'parents', 'parent_src', 'family', 'desc', 'uses_data', 'change', 'hypothesis', 'target'],
+  required: ['slot', 'op', 'parents', 'parent_src', 'family', 'desc', 'uses_data', 'change', 'context', 'hypothesis', 'target'],
   properties: {
     slot: { type: 'integer', description: 'stable 1-based handle for this proposal' },
     op: { type: 'string', enum: ['draft', 'improve', 'debug', 'combine'] },
@@ -38,7 +38,8 @@ const PROPOSAL = {
     family: { type: 'string', description: 'gbdt|nn|linear|darts|ensemble|baseline' },
     desc: { type: 'string', description: '≤8-word label (Mermaid + table row)' },
     uses_data: { type: 'array', items: { type: 'string' }, description: 'engineered feature-sets consumed (data.md fs_ ids); [] = base only. Name any NEW set fs_<name> in `change`.' },
-    change: { type: 'string', description: 'the ONE atomic change — the concrete HOW' },
+    change: { type: 'string', description: 'the ONE atomic change, 2–4 lines' },
+    context: { type: 'string', description: 'FREE-FORM build context — the developer\'s spec: the concrete HOW of the experiment + every reference worth READING (parent src dir, data.md recipe, refs/ kernel, discussions.md/MEMORY.md line). Never prescribes which files/functions to write.' },
     hypothesis: { type: 'string' },
     target: { type: 'string', description: 'metric + direction; beats parent if CV better than <parent cv>' },
   },
@@ -84,7 +85,8 @@ existing feature-set before re-engineering one), ${ROOT}/journal.md tail, the no
 ${ROOT}/spec.md, and the relevant MEMORY.md lines first.
 Each proposal: slot, op, parents, parent_src (dir to copy), family, desc (≤8 words), uses_data (data.md fs_ ids
 it consumes; [] = base only; name any NEW set fs_<name> in change with its leak-safety class), change (the ONE
-atomic change — the concrete HOW), hypothesis, target. Write NOTHING. Return ONLY the structured object.`
+atomic change), context (free-form — the developer's spec: the concrete HOW + every reference worth READING;
+never which files to write), hypothesis, target. Write NOTHING. Return ONLY the structured object.`
 
 const critiquePrompt = (proposals) => `${STANDING}
 

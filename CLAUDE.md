@@ -366,9 +366,16 @@ decided: <date -u or null>
 
 ## plan
 built on:   <parent(s) + what stays byte-identical>
-change:     <the ONE atomic change in 2–4 lines: the concrete HOW (the solution.py docstring expands this)>
+change:     <the ONE atomic change in 2–4 lines>
 hypothesis: <why this should move CV — one line>
 target:     <metric + direction> · beats parent if CV <better than> <parent/champion cv>
+
+<then FREE-FORM prose — write the plan however reads best, but it must hand the
+developer everything needed to build with minimal improvisation: the concrete HOW
+of the experiment, and every reference worth READING — the parent src dir, the
+data.md recipe of each feature-set, a refs/ kernel, the relevant discussions.md /
+MEMORY.md line. Never prescribe which files/functions to write — the developer
+owns the code; point only at things to read.>
 
 ## notes
 <optional free prose — only when worth keeping>
@@ -449,10 +456,15 @@ DONE=/tmp/<slug>_node_NNNN.done ; rm -f "$DONE"
 
 ## Subagents & the workflow
 
-The main session (the `/kaggle-experiment` skill) is the **orchestrator**: it
-sequences propose → register → build-and-gate EVERY proposal → decide. Three workers:
+The main session (the `/kaggle-experiment` skill) is the **orchestrator** — the
+**second brain**: referee, historian, and the human's gateway. It applies the
+written rules, verifies, and writes each round down (journal + lessons at the
+decide step); it never redesigns a proposal — anything no rule covers goes to the
+human or back to the proposer. It sequences propose → register → build-and-gate
+EVERY proposal → decide. Three workers:
 
-- **`kaggle-proposer`** is the "what to try next" brain — reads `graph.md` + `data.md`
+- **`kaggle-proposer`** is the **first brain** — all open-ended judgment about
+  what to try next — reads `graph.md` + `data.md`
   + `journal.md` + `research.md`/`discussions.md` + `MEMORY.md`, applies the search
   policy (its agent file is the policy's single home), and returns N proposals;
   revises them on feedback; and (once confirmed) writes the node records + graph rows.
@@ -485,7 +497,8 @@ zombie agent.
 `MEMORY.md` at the repo root is the case bank of lessons that generalize ACROSS
 competitions. RETRIEVE the relevant lines before proposing a node
 (retrieve-before-propose); RETAIN a new one after any promotion or hard-won
-failure. Keep entries to one line — per-competition state stays in `comps/<slug>/`.
+failure — the **orchestrator** writes it at the decide step, write-on-event, one
+line at a time (never batched later). Per-competition state stays in `comps/<slug>/`.
 
 ## Mission
 

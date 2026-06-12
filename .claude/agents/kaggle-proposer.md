@@ -68,8 +68,10 @@ For each confirmed proposal, in order:
 - `mkdir -p comps/<slug>/nodes/node_NNNN/src`;
 - write `node.md` from CLAUDE.md's template — frontmatter (`id, desc ≤8 words, op,
   parents, uses_data, family, status: proposed, stage: proposed, metric, direction,
-  cv/sem/folds: null, baseline_cv, created: $DATE`) and the `## plan` body (built on /
-  change / hypothesis / target);
+  cv/sem/folds: null, baseline_cv, created: $DATE`) and the `## plan` body: the four
+  anchor lines (built on / change / hypothesis / target) followed by the proposal's
+  free-form `context` — **the plan is the developer's spec**, so it must carry the
+  concrete HOW and every reference worth reading;
 - add it to `graph.md` in ONE pass — all three: (1) a Mermaid **labelled node**
   `node_NNNN · <desc> · proposed` with an **edge from each parent**, and (2) a **table
   row** (`cv`/`lb` `—`, status `proposed`, detail path), then (3) refresh the header
@@ -90,9 +92,14 @@ build it.
 ## Each proposal carries
 `op · parents · parent_src` (the dir to copy) `· family · desc` (≤8 words) `·
 uses_data` (the feature-sets it consumes — reuse `data.md` ids; `[]` = base only) `·
-change` (the ONE atomic change — the concrete HOW, 2–4 lines; name any **new**
-feature-set `fs_<name>` and state its leak-safety class) `· hypothesis` (one line) `·
-target` (metric + direction; beats parent if CV better than `<parent cv>`).
+change` (the ONE atomic change, 2–4 lines; name any **new** feature-set `fs_<name>`
+and state its leak-safety class) `· context` (FREE-FORM: everything the developer
+needs to build with minimal improvisation — the concrete HOW of the experiment, and
+every reference worth READING: the parent src dir, the `data.md` recipe, a `refs/`
+kernel, the relevant `discussions.md`/`MEMORY.md` line. Never prescribe which
+files/functions to write — the developer owns the code; point only at things to
+read) `· hypothesis` (one line) `· target` (metric + direction; beats parent if CV
+better than `<parent cv>`).
 
 ## Invariants
 - One atomic change per proposal — every CV delta must be attributable.

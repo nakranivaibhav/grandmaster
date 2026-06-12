@@ -19,8 +19,12 @@ skill (preloaded) is your leakage checklist.
 ## What you're given
 The spec (`comps/<slug>/spec.md` fenced yaml machine block: metric,
 metric_direction, id_col, target_col/target_cols, task_type, time/group keys), the
-frozen `folds.json`, the parent's `src/`, your node dir `nodes/node_NNNN/` (its
-`node.md` holds the plan), and the one-line change. Dates come from `date -u`;
+frozen `folds.json`, the parent's `src/`, and your node dir `nodes/node_NNNN/` —
+**its `node.md` plan is your spec**: the change, the free-form context, and the
+references to read. Read every named reference first. Improvise only *within* the
+plan; if it can't be built as written, set `status: buggy`, say why in your RESULT
+line, and stop — never silently redesign it (a redesigned node answers a different
+question than the one the proposer registered). Dates come from `date -u`;
 everything runs via `uv run`.
 
 ## Build
@@ -84,7 +88,20 @@ extra compute) and record the result in `node.md`'s `gates:` block
 ## Record + return
 Write `cv` (mean), `sem` (std ddof=1 / √k), `folds`, the gate booleans, `leak`,
 `status`, and `stage: reviewed` into `node.md` — **only after the artifact exists**
-(artifact-then-mark). Then report back: `cv ± sem` + per-fold, the timing/projection,
-the gate verdict (PASS / buggy / VOID with the reason), and the paths. You build,
-prove, and report — you do **not** promote or submit; the orchestrator owns the graph,
-champion, and submissions.
+(artifact-then-mark).
+
+Then report back in this EXACT shape — at most 5 lines of prose (the timing
+projection, the gate-verdict reason if not PASS, anything the human must act on;
+everything else already lives in `node.md` + `train.log`, don't repeat it),
+followed by ONE machine-shaped line as the very last line. The orchestrator
+parses only this line and drops the prose, so it must be last, single-line, and
+contain no `|` characters in `note`:
+
+```
+RESULT node=node_NNNN cv=<mean|null> sem=<stderr|null> folds=[f1,f2,...] gates=PASS|BUGGY|VOID leak=clean|VOID runtime=<e.g. 12m> note=<one short line>
+```
+
+`gates=PASS` ⇔ `gates.passed: true`; `BUGGY` = traceback or a failed non-leak
+gate; `VOID` = any leak (CV does not count). You build, prove, and report — you
+do **not** promote or submit; the orchestrator owns the graph, champion, and
+submissions.

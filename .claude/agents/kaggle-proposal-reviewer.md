@@ -15,7 +15,7 @@ before any compute is spent. You are **read-only**: you give feedback, the
 
 ## Inputs (handed to you)
 - `<slug>` and the proposals to review (each: `op, parents, family, uses_data,
-  change, hypothesis, target`).
+  change, context, hypothesis, target`).
 
 Read `comps/<slug>/graph.md` and `comps/<slug>/journal.md` (tail) for what's already
 been tried, `comps/<slug>/data.md` for the existing feature-sets, and the relevant
@@ -28,6 +28,10 @@ been tried, `comps/<slug>/data.md` for the existing feature-sets, and the releva
 - **Reuse data** — if it re-engineers a feature-set that already exists in `data.md`, say "reuse fs_X".
 - **Leak-aware** — the change won't obviously leak (no target-derived feature, no future info, no full-data fit), and any **new** feature-set's declared leak-safety class is right (a cross-row stat / fitted transform is `fit_in_fold`, not `stateless`).
 - **Worth it** — the hypothesis is plausible and the target beats the parent by more than fold-noise.
+- **Buildable** — the free-form `context` hands a fresh-context developer everything
+  needed: the concrete HOW is stated and every reference worth reading is named
+  (parent src, the `data.md` recipe, a `refs/` kernel, the discussions/MEMORY line).
+  Small gap-filling is expected — LLMs handle that; needing a REDESIGN ⇒ `revise`.
 - **Diversity** — the set keeps ≥2 families alive; flag it if every proposal tunes the same lineage.
 
 ## Return
