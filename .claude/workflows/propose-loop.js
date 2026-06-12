@@ -15,9 +15,9 @@ export const meta = {
 //   maxIters    — max critique→revise cycles before returning (default 2)
 // Returns { proposals:[{slot, op, parents, parent_src, family, desc, uses_data, change, context, hypothesis, target}], all_good, note }.
 // ---------------------------------------------------------------------------
-const SLUG = args.slug
-const N = Math.max(1, args.nProposals || 3)
-const MAX_ITERS = Math.max(0, args.maxIters ?? 2)
+const SLUG = (args && args.slug) || 'playground-series-s6e6'
+const N = Math.max(1, (args && args.nProposals) || 5)
+const MAX_ITERS = Math.max(0, (args && args.maxIters) ?? 2)
 const ROOT = `comps/${SLUG}`
 if (!SLUG) return { error: 'args.slug is required (the competition slug under comps/<slug>/)' }
 

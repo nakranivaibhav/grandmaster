@@ -26,12 +26,18 @@ dependencies = [
     "optuna",
     "torchvision>=0.26.0",
     "ultralytics",
+    "autogluon-tabular>=1.5.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=7.0",
 ]
+
+[tool.uv]
+# torch's CUDA index only serves an old torchmetrics (1.0.3); pytabkit[models]
+# needs >=1.2.1 from PyPI. Allow uv to pick the best version across both indexes.
+index-strategy = "unsafe-best-match"
 
 [[tool.uv.index]]
 url = "https://download.pytorch.org/whl/cu128"
