@@ -27,6 +27,8 @@ dependencies = [
     "torchvision>=0.26.0",
     "ultralytics",
     "autogluon-tabular>=1.5.0",
+    "pytorch-tabular>=1.2.0",
+    "torch-geometric>=2.8.0",
 ]
 
 [dependency-groups]

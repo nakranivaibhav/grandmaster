@@ -84,7 +84,9 @@ def run_kaggle(args: list[str], *, retries: int = 5, _sleep=time.sleep) -> subpr
     delay = 2.0
     last = None
     for attempt in range(retries):
-        last = subprocess.run(["kaggle", *args], capture_output=True, text=True)
+        # invoke via the module, not the `kaggle` entry-point script — the latter's
+        # shebang can go stale if the venv is relocated; `python -m kaggle` always works.
+        last = subprocess.run([sys.executable, "-m", "kaggle", *args], capture_output=True, text=True)
         if last.returncode == 0:
             return last
         kind = classify_error(last.stderr or last.stdout)
