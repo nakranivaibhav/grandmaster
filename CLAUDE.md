@@ -32,6 +32,12 @@ proposing, building, and submitting better nodes until the human stops you or th
 deadline hits. `kaggle-status` is read-only and available any time (it's also the
 resume entry).
 
+Two on-demand helpers (not pipeline stages — invoke only when the human asks):
+`kaggle-status` (above), and **`kaggle-kernel`** — publish a node's solution as a
+Kaggle notebook, always **private** and **attached to the competition**, for the
+human to review. Use it when the human says "publish/upload a kernel/notebook" or
+"make a Kaggle notebook for this model".
+
 **Rules while driving:**
 - After a **non-gated** step, proceed to the next stage without asking.
 - At a **gated** step, render the Decision Card and **wait** (`interactive` /
@@ -414,12 +420,34 @@ today (UTC): <date -u +%F>   submissions: <used>/<lim> (resets 00:00 UTC)   dead
 `days_left = deadline − today`; when it gets small, **surface it** but keep
 running the experiment loop — never wind down on your own.
 
-**Fold-noise = 2·sem of the candidate's CV** — the one canonical definition, used
-by BOTH the submit gate and the promote gate. A slot only goes to a node that
-beats the last submitted CV by more than fold-noise; never auto-spend a slot to
-A/B on the LB — CV decides *what* to submit. One carve-out: a **human-directed LB
-probe** is allowed — log it with `PROBE` in the ledger's note column, keep it to
-~2/day.
+**Fold-noise = 2·sem of the candidate's CV** — the quick scalar heuristic for "is
+this difference plausibly real?", used as a first screen by the submit and promote
+gates. But a single scalar (Balanced Accuracy is a *macro-average of per-class
+recall*) is structurally blind to localized gains: a node can be flat-or-worse on
+global CV yet carry a real, significant edge in one class or region that a stack can
+exploit. So the scalar is a screen, **not the final arbiter** — the canonical gate is:
+
+1. **Quantitative arbiter — paired bootstrap, not the raw 2·sem.** Resample the OOF
+   rows (B≥2000) and recompute the champion-vs-candidate metric difference each time
+   (`tools/pred_diagnostic.py`). Promote/keep on **P(candidate > champion) ≥ 0.90**
+   (fold-independent, far finer than 5 coarse fold-means) — this lets a genuine
+   sub-2·sem gain survive *without* reopening the CV-mirage door (the bootstrap tests
+   "is it real?" directly on the rows).
+2. **Structural evidence — what changed, not just by how much.** After every node,
+   run `tools/pred_diagnostic.py` (per-class recall/precision deltas, confusion-matrix
+   delta, paired flip analysis by class + region with a McNemar test). A node with a
+   **McNemar-significant block of fixes concentrated in a class/region — that also
+   holds on the inviolable holdout** — is a real *keep/combine* candidate even at flat
+   global CV. Record the per-class recalls + flip summary in the node record; never
+   discard a structurally-distinct node as "wash" on the scalar alone.
+3. **n0047 mirage guardrail (unchanged).** A gain that shows on working-CV but **not
+   on the holdout** is a mirage — kill it. Anything promoted below the old 2·sem
+   scalar, and any narrow label-fit specialist, is **submit-gated on an LB probe**
+   before it counts as a champion/finals candidate.
+
+A slot still never gets auto-spent to A/B on the LB — the bootstrap+structure decides
+*what* to submit. One carve-out: a **human-directed LB probe** is allowed — log it
+with `PROBE` in the ledger's note column, keep it to ~2/day.
 
 ---
 

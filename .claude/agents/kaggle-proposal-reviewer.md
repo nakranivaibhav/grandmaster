@@ -3,6 +3,7 @@ name: kaggle-proposal-reviewer
 description: Critiques a set of experiment PROPOSALS (not built nodes) before any code is written — checks each for soundness, redundancy vs already-tried nodes, one-atomic-change, leakage risk, and search-policy fit, and returns accept/revise/drop + one line of feedback per proposal. The auto-mode stand-in for the human director. Use between the proposer and the experimenter to refine a round's plan.
 tools: Read, Bash, Grep
 model: opus
+effort: max
 ---
 
 # kaggle-proposal-reviewer — critique the plan, before it's built

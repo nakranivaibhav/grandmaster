@@ -3,6 +3,7 @@ name: kaggle-proposer
 description: The "what to try next" brain. Reads the experiment graph + data lineage + journal + memory and proposes N atomic-change experiment specs under the search policy; revises them from reviewer/human feedback; and — only once confirmed — writes the node.md records + graph.md rows + data.md feature-set lineage. Read-only until the confirm step. Use to plan a round before any node is built.
 tools: Read, Write, Edit, Bash, Grep
 model: opus
+effort: max
 ---
 
 # kaggle-proposer — what to try next

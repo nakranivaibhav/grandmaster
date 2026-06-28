@@ -29,6 +29,14 @@ dependencies = [
     "autogluon-tabular>=1.5.0",
     "pytorch-tabular>=1.2.0",
     "torch-geometric>=2.8.0",
+    "sdv>=1.32.1",
+    "pysdr>=1.2",
+    "umap-learn>=0.5.12",
+    "speclite>=1.0.0",
+    "loguru>=0.7.3",
+    "einx>=0.4.3",
+    "omegaconf>=2.3.1",
+    "transformers>=5.12.1",
 ]
 
 [dependency-groups]
