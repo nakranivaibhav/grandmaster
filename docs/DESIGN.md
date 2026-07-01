@@ -1,4 +1,4 @@
-# kaggleforge — design & rationale
+# grandmaster — design & rationale
 
 > Operating rules live in CLAUDE.md — this file is only the *why* (research lineage + rationale). Where this file used to restate rules, it now points.
 
@@ -50,7 +50,7 @@ any-medal pass rates. Numbers worth internalising for expectation-setting:
 o1-preview + AIDE scored **~16.9% any-medal pass@1, rising to ~34.1% pass@8**;
 **Claude 3.5 Sonnet + AIDE ~7.6%**. The cost is real — a full sweep is roughly
 **~1800 GPU-hours ≈ $3k per seed**. The honest reading: *autonomy medals on a
-minority of competitions.* This is precisely why kaggleforge is **human-in-the-loop**
+minority of competitions.* this is precisely why grandmaster is **human-in-the-loop**
 — we spend the human's judgement at the few irreversible gates (metric reading,
 real submissions) where being wrong is catastrophic, and let the machine grind
 the reversible middle. We treat the official metric on a trustworthy local CV as
@@ -244,11 +244,11 @@ frontier → open any `running` node's `node.md` and resume from its `stage`.
 
 ## 7 · Mapping from the sibling neural-ring-detector loop
 
-kaggleforge is the same autonomous-loop shape as the sibling neural-ring-detector
+grandmaster is the same autonomous-loop shape as the sibling neural-ring-detector
 "AutoResearch" agent, retargeted from "best ring model" to "best Kaggle solution."
 The concepts map one-to-one — which is why the operating discipline feels familiar:
 
-| neural-ring-detector | kaggleforge analogue |
+| neural-ring-detector | grandmaster analogue |
 |---|---|
 | champion / challenger (best model so far vs the run) | **champion node** = best valid node in the graph; each new node is the challenger, A/B'd against its parent |
 | per-experiment file isolation (`experiments/exp_NNN/src/`, self-contained) | per-node isolation (`comps/<slug>/nodes/node_NNNN/src/`, copy-parent-then-one-change); reusable code in `tools/` is extended in place, never forked |
