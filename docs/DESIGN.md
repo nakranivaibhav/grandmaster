@@ -287,6 +287,17 @@ right (`understand`) and spending an irreversible public slot (`submit`).
   the public LB into a private shake-up. The discipline (trust CV, log-don't-act
   on the gap, slot only for a CV win) is a guardrail, not a guarantee — a human in
   `interactive` mode is the real safety net.
+- **Pessimism contagion.** A fresh session's behavior is set by the artifacts it
+  wakes up into, not by the rulebook — terminal verdicts ("ceiling reached", "all
+  levers exhausted") written into the resume surfaces made later sessions give up
+  early. In s6e6 such verdicts were declared four times and were wrong three: an
+  under-built base, a ported public recipe, and a full-pool shrinkage stack each
+  broke a declared "ceiling". The mitigation is structural, not exhortative: every
+  comp artifact carries its format contract at its top (stamped by `kaggle-start`;
+  narrative lives only in `journal.md`); dead ends are recorded as *scoped
+  closures* — tried X, measured Y, reopen-if Z — with verdict vocabulary banned
+  (hard rule 10); resumers read numbers as state and journal prose as the previous
+  session's hypotheses; and `/kaggle-status` audits the contracts on every resume.
 - **Two non-automatable Kaggle gates** (accept rules in the browser, phone-verify
   for GPU/internet) block downloads/submits and *cannot be retried around* — a
   403 means "rules not accepted / unverified," **not** bad creds (the #1

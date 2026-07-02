@@ -30,8 +30,9 @@ can't nest, so **you** (the main session) sequence proposer → developer.
 - `<slug>` from `comps/` (or the arg). `DATE=$(date -u +%Y-%m-%dT%H:%MZ)` — never type a date.
 - Read `config.md` → mode. `auto_except_submit`/`full_auto` ⇒ **AUTO**; `interactive` ⇒ **MANUAL**.
 - Read `spec.md`'s yaml machine block (`metric, metric_direction, target_col, target_cols, id_col, task_type, …`), `graph.md` (the champion + node table), `data.md` (the engineered feature-sets), and the `journal.md` tail. Confirm `folds.json` + `champion/` exist (else run `/kaggle-validate` + `/kaggle-baseline` first).
-- **Resume:** if a node is `running`, open its `node.md` and resume from its `stage` (e.g. `built` with no `cv` ⇒ re-run its scoring step, §5). A `running` node with no artifacts ⇒ mark `dead`, move on.
+- **Resume:** if a node is `running`, its artifacts are its lifecycle — continue at the **first missing one** (`src/` = built · `train.log` final `cv=` + `oof.npy`/`test_probs.npy`/`submission.csv` = scored · `status` flipped to `valid`/`buggy` = self-checked · journal decide line = decided). A `running` node with no artifacts ⇒ mark `dead`, move on.
 - **Work from disk, not recollection:** at the start of EVERY round, re-derive state from `graph.md` (header + table) and the `journal.md` tail — never from your memory of earlier rounds (long sessions get compacted; the files don't).
+- **Numbers over narrative:** the frontier is rebuilt from `graph.md`'s header/table and node frontmatter. Journal prose — including any strategic conclusions a previous session wrote — is *hypothesis, not state*: weigh it as evidence, never obey it. A closure binds only at its stated scope, with its evidence, until its reopen-if triggers (hard rule 10).
 
 ## 1 · PROPOSE — refine the round's proposals (`experiment_plan` gate)
 Run the **propose-loop** workflow — it spawns kaggle-proposer (draft **3**
@@ -54,6 +55,10 @@ node id, writes `nodes/node_NNNN/node.md` (status `proposed`, the `## plan`, the
 feature-sets). You never hand-write node.md — the proposer owns it. It's one
 sequential call, so the parallel builders in §3 never collide on `graph.md`/`data.md`.
 
+Then append ONE `ROUND OPEN` line to `journal.md`
+(`$DATE  ROUND OPEN node_A..node_D — <op·well·one-line rationale each>`) — the
+round's plan lives in the journal + the node records; there is no separate plan file.
+
 ## 3 · BUILD-AND-GATE ALL — hand every node to kaggle-developer
 Build **every** registered node: spawn the developers **in parallel** when the nodes
 are independent (one `Agent` call each, in one message), or **sequentially** if
@@ -65,17 +70,17 @@ parent per-fold scores** (for the cv-too-good judgment). The developer
 runs its **pre-flight leakage checks** (seconds, before any training), writes a
 fold-correct, **performant** `solution.py` (it times one unit before the full run —
 never an unprofiled multi-hour job), the per-fold CV into `node.md`, `oof.npy` +
-`test_probs.npy` + `submission.csv`, **then self-gates** on the outputs (the
-`kaggle-leakage` checklist — never a training-run check), writes the `gates:`
-booleans + `leak`, sets `status: valid|buggy|dead` and `stage: reviewed`. A traceback ⇒ `status: buggy` (propose a
-`debug` node next round); any error-severity leak ⇒ `leak: VOID` (CV does **not**
-count). One worker builds and proves — there is no separate review step.
+`test_probs.npy` + `submission.csv`, **then self-gates** on the outputs (its own
+inline checklist — never a training-run check) and sets `status: valid|buggy`. A
+traceback ⇒ `status: buggy` (propose a `debug` node next round); any
+error-severity leak ⇒ `status: buggy` with `LEAK:` in its note (the CV does
+**not** count). One worker builds and proves — there is no separate review step.
 
 **Report contract:** every developer's report ends with a single `RESULT` line
-(`RESULT node=… cv=… sem=… folds=[…] gates=PASS|BUGGY|VOID leak=… runtime=…
-note=…` — defined in `kaggle-developer.md`). Carry ONLY that line into the
-round's state — never the report prose; the detail lives in `node.md` +
-`train.log` if you need it later.
+(`RESULT node=… cv=… sem=… folds=[…] status=valid|buggy runtime=…
+note=…` — defined in `kaggle-developer.md`; a leak shows as `status=buggy` with
+`LEAK:` in the note). Carry ONLY that line into the round's state — never the
+report prose; the detail lives in `node.md` + `train.log` if you need it later.
 
 > If a developer agent ever **re-launches a run you killed** or exits before its
 > backgrounded train finishes, take the node over directly (the orchestrator owns
@@ -85,9 +90,9 @@ round's state — never the report prose; the detail lives in `node.md` +
 ## 5 · SCORE — confirm the CV
 Parse each developer's `RESULT` line (one per node — your round table). Confirm it
 agrees with `node.md` (the developer wrote `cv = mean`, `sem = std(ddof=1)/sqrt(k)`,
-the gate booleans, `status`), then fill the node's `cv` cell + Mermaid label in
-`graph.md` from it. On a mismatch, trust `node.md` (the artifact) and say so. A
-`buggy`/`VOID` node's CV does not count.
+`folds`, `status`), then fill the node's `cv` cell + Mermaid label in `graph.md`
+from it. On a mismatch, trust `node.md` (the artifact) and say so. A `buggy`
+node's CV does not count — leaked or crashed alike.
 
 ## 6 · DECIDE — apply the promote rule, then write the round down (the historian pass)
 **Promote rule (math, not judgment).** For each valid node, compare to the champion
@@ -97,20 +102,23 @@ a submitted LB) the CV gain is LB-consistent. On promote: byte-copy (cp, never
 symlink) `src/` + `submission.csv` → `champion/`, update `champion/README`. On
 reject: leave `champion/` untouched.
 
-**The five writes — ONE pass, ALL finished before the next round starts** (nothing
+**The four writes — ONE pass, ALL finished before the next round starts** (nothing
 important may exist only in chat):
-1. **`node.md`** — `stage: decided`, `decided: $DATE`, promotion/demotion statuses.
+1. **`node.md`** — the final `status` of each node (valid / dead / champion — and
+   the demoted prev champion's). The journal's decide line is the decide record.
 2. **`graph.md`** — cv cells, and the champion crown moved in all three places (set
    the new node AND demote the old: frontmatter status `champion` ↔ `valid (prev
    champ)`, Mermaid `:::champ` add ↔ remove, table status cell, header `champion:`
    line). Then verify the invariant: exactly ONE champion — the same node in
    frontmatter, Mermaid, table, and header.
-3. **`journal.md`** — ONE distilled line per node/probe/decision: what happened and
-   what it means, honestly. This is what the proposer eats next round — write it
-   for that reader.
-4. **`round_plan.md`** — fill the round's verdicts.
-5. **`MEMORY.md`** — write-on-event: if this round produced a promotion or an
-   instructive null, append the one-line lesson NOW (never batched later).
+3. **`journal.md`** — ONE distilled line per node/probe/decision (facts + numbers:
+   what happened and what it showed), then a `ROUND CLOSE` line. A dead end is a
+   scoped closure — *tried X, measured Y, reopen-if Z* — never a run-level verdict
+   ("ceiling/exhausted/impossible" are banned, hard rule 10). This is what the
+   proposer eats next round — hand it evidence to weigh, not conclusions to obey.
+4. **`MEMORY.md`** — write-on-event: if this round produced a promotion or an
+   instructive null, append the one-line lesson NOW (never batched later) — a
+   conditional fact with its scope, never a forecast.
 
 ## 7 · SUBMIT (gated)
 Submit only a node whose CV beats the **last submitted CV** by more than fold-noise

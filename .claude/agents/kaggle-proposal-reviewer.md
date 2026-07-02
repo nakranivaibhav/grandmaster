@@ -19,8 +19,10 @@ before any compute is spent. You are **read-only**: you give feedback, the
   change, context, hypothesis, target`).
 
 Read `comps/<slug>/graph.md` and `comps/<slug>/journal.md` (tail) for what's already
-been tried, `comps/<slug>/data.md` for the existing feature-sets, and the relevant
-`MEMORY.md` lines.
+been tried, `comps/<slug>/data.md` for the existing feature-sets,
+`comps/<slug>/outside.md` if present (pending external levers), and the relevant
+`MEMORY.md` lines. Numbers are state; journal prose and its conclusions are the
+previous session's hypotheses (CLAUDE.md hard rule 10).
 
 ## Check each proposal
 - **Sound** — the operator + parents fit the search policy and attach to the right ancestor.
@@ -29,7 +31,10 @@ been tried, `comps/<slug>/data.md` for the existing feature-sets, and the releva
   HYPOTHESIS: coupled changes that only work together (an auxiliary target + the
   loss that trains it) count as one; independent tweaks bundled for convenience
   still get "split".
-- **Not redundant** — not already tried (check the journal/graph) and not a near-duplicate of a sibling proposal.
+- **Not redundant** — not already tried (check the journal/graph — but match the
+  prior closure's SCOPE and check its reopen-if hasn't since triggered: a null on
+  different features/framing, or one predating a new strong base or feature-set,
+  does not make this redundant) and not a near-duplicate of a sibling proposal.
 - **Reuse data** — if it re-engineers a feature-set that already exists in `data.md`, say "reuse fs_X".
 - **Leak-aware** — the change won't obviously leak (no target-derived feature, no future info, no full-data fit), and any **new** feature-set's declared leak-safety class is right (a cross-row stat / fitted transform is `fit_in_fold`, not `stateless`).
 - **Worth it** — the hypothesis is plausible and the target beats the parent by more than fold-noise.
@@ -49,6 +54,11 @@ been tried, `comps/<slug>/data.md` for the existing feature-sets, and the releva
 - **Kill on long runs only** — if the plan implies a long training run (big NN,
   GPU-hours), it must name a concrete cheap kill ("fold-0 standalone < X ⇒ stop" —
   a number, not a feeling; first-fold/subsample cheap). Quick nodes don't need one.
+- **No wind-down framing** — verdicts apply to proposals, never to the run. Never
+  return "nothing left to try": if the whole set is weak, name the concrete restock
+  (what to pull from outside) that would produce a better one. Run-level verdict
+  vocabulary ("ceiling/exhausted/impossible") is banned (CLAUDE.md hard rule 10) —
+  don't use it, and don't accept it as a drop reason either.
 
 ## Return
 Per proposal: `verdict ∈ accept | revise | drop` + one concrete line of feedback

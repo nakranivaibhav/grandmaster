@@ -36,24 +36,16 @@ slug=<slug>; node=comps/$slug/nodes/node_0000
 mkdir -p $node/src
 NOW=$(date -u +%Y-%m-%dT%H:%MZ)
 ```
-Write `$node/node.md` from the CLAUDE.md `node.md` template (frontmatter +
-`## plan` body, **no checkboxes**), with `op: draft`, `parents: [root]`,
-`family: baseline`, `status: running`, `stage: proposed`, `metric`/`direction`
-from spec.md, `created: $NOW`. Leave the metric/gate fields null for now —
-they get filled in as the node progresses (`cv`, `sem`, `folds`, `baseline_cv`,
-the `gates:` booleans, `leak`); there is **no** `metrics.md` and
-**no** `gate_report.md`, those values live in this frontmatter. Fill the
-`## plan` body:
-- **built on:** root (nothing inherited — this is the floor)
-- **change:** the constant rule (which constant + why, 1–2 lines, e.g. "predict
-  the global train median for every test row")
-- **hypothesis:** "establishes the schema-correct data→CV→submit pipe and a floor
-  CV every later node must beat"
-- **target:** the official metric + direction
-
-This file is the `proposed` artifact — the frontmatter already reads
-`stage: proposed`. Advance `stage` only after each later artifact exists
-(artifact-then-mark).
+Write `$node/node.md` with the minimal frontmatter (the template lives in
+`kaggle-proposer.md` — this is the one node written outside the proposer):
+`id: node_0000` · `desc` · `op: draft` · `parents: [root]` · `family: baseline` ·
+`uses_data: []` · `status: running` · `cv`/`sem`/`folds`/`lb`/`gates`: null.
+There is **no** `metrics.md` and **no** `gate_report.md` — scores and the gate
+verdict land in this frontmatter as the artifacts appear (artifact-then-mark).
+Then a short free-form plan body stating: the constant rule (which constant + why,
+1–2 lines, e.g. "predict the global train median for every test row"), the
+hypothesis ("establishes the schema-correct data→CV→submit pipe and a floor CV
+every later node must beat"), and the official metric + direction from spec.md.
 
 Append one line to `comps/$slug/journal.md`:
 `$NOW node_0000 draft(root) baseline — predict <mean|median|base-rate> · status=running`.
@@ -120,17 +112,16 @@ pattern if it ever takes minutes.
 uv run python $node/src/solution.py > $node/train.log 2>&1; echo "exit=$?"
 grep -E "cv=|Traceback|Error|Killed" $node/train.log
 ```
-No traceback → `train.log` exists, so advance `stage: built` in node.md's
-frontmatter. Then write the CV numbers straight into the **node.md frontmatter**
-(no `metrics.md`): set `cv: <mean>`, `sem: <sem>`, `folds: [<per-fold scores>]`,
-`baseline_cv: <mean>` (this constant *is* the baseline) — the score is computed
-within this build step, so `stage` stays `built`. There is no separate unit-test
-gate for a constant — the fast self-checks + validate are the gates.
+No traceback → write the CV numbers straight into the **node.md frontmatter**
+(no `metrics.md`): set `cv: <mean>`, `sem: <sem>`, `folds: [<per-fold scores>]`
+— this constant's cv is the floor every later node must beat. There is no
+separate unit-test gate for a constant — the fast self-checks + validate are the
+gates.
 
 ## Step 4 — fast self-checks (constant baseline passes trivially)
 No tool runs here — these are the developer-style in-node self-checks (the
-`kaggle-leakage` checklist), all true by construction for a constant (no features
-to leak through):
+checklist lives in `kaggle-developer.md`), all true by construction for a
+constant (no features to leak through):
 - **target/id not in features** — trivially true: `features = []`.
 - **OOF complete** — every fold's `val_idx` got a prediction (the loop covers all
   folds, no row skipped).
@@ -138,12 +129,10 @@ to leak through):
 - **distribution sane** — predictions are a single finite constant (expected).
 - **schema valid** — confirmed by `tools/validate_submission.py` in Step 5.
 
-Record the result in the node.md `gates:` frontmatter: set `leak_clean: true`
-and the structural booleans (`schema_ok`, `oof_full`, `no_nan`, `dist_sane`,
-`cv_too_good`) accordingly; set `leak: clean`. (If solution.py ever accidentally
-used a feature/id, the target/id-not-in-features check would fail — fix solution.py,
-don't override the gate: set `leak: VOID` and the failing boolean false; the CV
-does not count.)
+Nothing to record here — `status` flips to `valid` after the schema check in
+Step 5 completes the checklist. (If solution.py ever accidentally used a
+feature/id, the target/id-not-in-features check fails — fix solution.py, don't
+override: a leak means `status: buggy` and the CV does not count.)
 
 ## Step 5 — validate the submission file (the schema gate)
 ```bash
@@ -153,9 +142,8 @@ uv run tools/validate_submission.py \
 echo "valid_exit=$?"
 ```
 Must print `OK:` and exit 0. Any `INVALID:` line (column/row/id/NaN/inf) → fix
-solution.py and rerun Steps 3–5. On `OK:`, finalize the node.md `gates:`
-frontmatter (no `gate_report.md`): set `schema_ok: true`, and `passed: true` only
-once every required gate boolean is true. Advance `stage: reviewed`.
+solution.py and rerun Steps 3–5. On `OK:`, set `status: valid` in node.md (all
+self-checks + schema clean — the CV counts).
 
 ## Step 6 — create graph.md and make node_0000 the champion
 This is the first valid node, so it is the champion by definition (best valid CV).
@@ -187,9 +175,9 @@ cp $node/submission.csv comps/$slug/champion/submission.csv
 ```
 3. Write `comps/$slug/champion/README.md`: node_0000, the constant used, `cv=…`,
    metric+direction, and "first champion — dumb baseline, proves the pipe."
-4. In `$node/node.md` frontmatter set `status: champion`,
-   `decided: $(date -u +%Y-%m-%dT%H:%MZ)`, and advance `stage: decided`. Append a
-   `journal.md` line: `<NOW> node_0000 → champion cv=<…> (<metric> <direction>)`.
+4. In `$node/node.md` frontmatter set `status: champion`. Append a `journal.md`
+   line: `<NOW> node_0000 → champion cv=<…> (<metric> <direction>)` — the journal
+   line is the decide record.
 
 ## Step 7 — SUBMIT GATE (spends 1 of the daily limit)
 A real submission is irreversible + rate-limited → it is a **hard human gate**
@@ -222,10 +210,9 @@ ledger/poll logic lives in one place:
 ```
 The kaggle-submit skill appends the UTC row to `submissions.md`, polls for the
 public score, and logs the CV↔LB gap (surfaced, never auto-acted). When it
-returns, in node.md set `lb: <public score>` and `submitted: <date -u +%F>` (a
-submission is recorded by these fields — there is no `submitted` stage; `stage`
-stays `decided`), and update the `lb` cell of the `graph.md` `## nodes` row; note
-the public score + gap in `journal.md`. (If a 403 comes back, that's
+returns, set `lb: <public score>` in node.md (the ledger row is the submission
+record), and update the `lb` cell of the `graph.md` `## nodes` row; note the
+public score + gap in `journal.md`. (If a 403 comes back, that's
 rules-not-accepted / unverified, NOT bad creds — surface the human gate, don't
 retry around it.)
 
@@ -238,9 +225,9 @@ submitted) and the CV↔LB gap, and that the pipe is proven end-to-end — next 
 `/kaggle-experiment` (real models).
 
 ## Guardrails
-- Never advance `stage` before its named artifact exists (artifact-then-mark):
-  `proposed → built → reviewed → decided` (a submission is recorded by the
-  `submitted:` date + `lb:` fields, not a stage).
+- Artifact-then-mark: a frontmatter field is written only after the artifact it
+  describes exists (`cv` after the log · `status: valid` after the checks · `lb`
+  after the ledger row).
 - A server-rejected submission does NOT burn the daily quota — safe to fix and
   resubmit; only an *accepted* submit counts.
 - Do not add features, models, or tuning here — that is `/kaggle-experiment`.

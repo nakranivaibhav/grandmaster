@@ -21,10 +21,10 @@ current champion (`comps/<slug>/champion/`). All paths below are repo-relative.
 ## 0 · Preconditions (read, don't retry around the human gates)
 
 - `comps/<slug>/nodes/<node_id>/submission.csv` exists, and its `node.md`
-  frontmatter shows `leak: clean` and a non-null `cv` (i.e. it was built and
-  scored). A node that hasn't cleared the leakage self-checks **cannot** be
-  submitted — leakage voids the score (Hard rule 3). If `leak` isn't `clean` or
-  `cv` is null, stop and say so.
+  frontmatter shows `status: valid` (or `champion`) and a non-null `cv` (i.e. it
+  was built, scored, and self-checked clean). A node that hasn't cleared the
+  leakage self-checks **cannot** be submitted — leakage voids the score (Hard
+  rule 3). If `status` is anything else, or `cv` is null, stop and say so.
 - `KAGGLE_USERNAME` / `KAGGLE_KEY` are in the env (the tool fails with a clear
   message otherwise). A 403 here means **rules-not-accepted / unverified**, not
   bad creds — surface the human gate, don't retry.
@@ -176,11 +176,9 @@ with `| <date>` so they're never miscounted):
 ## 7 · Advance the stage, log the gap (artifact-then-mark, never auto-demote)
 
 1. In `comps/$slug/nodes/$node/node.md` frontmatter, **only now** that the row
-   exists (Hard rule 5 — artifact then mark), set:
-   - `lb: <public score>` (or `lb: pending` if the poll window closed unscored)
-   - `submitted: <date -u +%F>`
-   (The `stage` ladder ends at `decided` — a submission is recorded by these two
-   fields, not by a stage value.)
+   exists (Hard rule 5 — artifact then mark), set
+   `lb: <public score>` (or `lb: pending` if the poll window closed unscored).
+   The ledger row is the submission record — the node carries only the score.
 2. Update that node's row in `comps/$slug/graph.md` — its `lb` cell (and
    `status`, if this submit promoted it to `champion`). The Mermaid label keeps
    the node's `cv`; the table carries the `lb`.

@@ -111,8 +111,9 @@ non-gated experiment grind runs as subagents / the workflow.
    target + the loss that trains it) — that is ONE hypothesis; if it wins, ablate
    the bundle next round to recover attribution.
 5. **Artifact-then-mark.** Do the work → write the artifact → *then* mark it done
-   (tick a `progress.md` stage box, or advance a node's `stage` field). A mark
-   never runs ahead of the file it names.
+   (tick a `progress.md` stage box, or write the node field the artifact justifies
+   — `cv` after the log, `status: valid` after the checks). A mark never runs
+   ahead of the file it names.
 6. **Trust a well-built CV over the public LB.** The public LB is a small noisy
    slice; chasing it causes private shake-up. A CV↔LB gap is a *diagnostic to
    surface*, never an auto-demote trigger.
@@ -129,6 +130,14 @@ non-gated experiment grind runs as subagents / the workflow.
 9. **An LB submission must come from a registered node.** Anything submitted to the
    leaderboard or held as a finals candidate is a node in `graph.md` first (a `combine`
    over external artifacts is fine) — never a loose comp-root script.
+10. **Facts, not forecasts (scoped closures).** A dead end is recorded as *tried X,
+    measured Y, reopen-if Z* — scoped to its evidence, never widened into a verdict
+    about the run. "Ceiling", "exhausted", "impossible", "nothing left", "practical
+    limit" are **banned from every artifact**: such verdicts were declared 4× in
+    s6e6 and were wrong 3× — each break came from a lever the verdict would have
+    suppressed (an under-built base, a ported recipe, a bigger pool under shrinkage).
+    A closure prunes ONE direction under stated conditions and goes stale when its
+    reopen-if triggers; only the post-deadline private LB may pronounce on a run.
 
 ---
 
@@ -144,10 +153,8 @@ comps/<slug>/
   folds.json       # frozen fold indices (split-seed only)
   graph.md         # THE MAP: ONE header line + Mermaid DAG + the nodes table (no narrative — that lives in journal.md)
   data.md          # DATA LINEAGE: engineered feature-sets (raw→base→fs_*) + which nodes consume each
-  journal.md       # append-only, timestamped — the ONLY narrative log (one line per node / probe / decision)
-  round_plan.md    # the current round's plan + per-item verdicts (rewritten per round)
-  research.md      # "look outside" findings: methods/papers worth a concrete lever
-  discussions.md   # distilled intel from the comp's discussions / public notebooks
+  journal.md       # append-only, timestamped — the ONLY narrative log (one line per node / probe / decision / round open+close)
+  outside.md       # distilled external intel: public notebooks · discussions · papers — one entry per find (source · lever · numbers)
   refs/            # snapshotted external artifacts (pulled kernels, public OOF banks)
   probes/          # cheap one-off scripts (restacks / diagnostics) — deliberately NOT nodes; one journal line each
   src/             # shared comp code (clean.py + its unit tests)
@@ -159,6 +166,12 @@ comps/<slug>/
     train.log  submission.csv  oof.npy  test_probs.npy   # raw artifacts (oof: n_train×k · test_probs: n_test×k, rows aligned to the frozen folds)
   data/            # downloaded + unzipped (gitignored)
 ```
+
+**Every markdown artifact above carries its own contract** — an HTML comment at the
+top of the file stating what belongs in it, what never does, and what else must
+change with it. `kaggle-start` stamps the contracts at bootstrap; **obey the
+contract of any file you edit** — it is the single home of that file's format rules
+(this file only keeps the philosophy).
 
 **What git tracks.** `.gitignore` is **deny-by-default**: everything at the repo
 root is ignored, and only the reusable system is re-included via `!` allowlist
@@ -195,64 +208,30 @@ to **the deepest ancestor(s) whose work it keeps**:
   plateau usually means under-built, not capped — pull a top public notebook
   (`kaggle kernels pull`) and diff your approach against it, scan the comp's Kaggle
   discussions for the winning recipe, or search the web / arXiv for the relevant
-  method. Land what you find in `research.md` (methods/papers) and `discussions.md`
-  (comp intel) so the proposer can read it; bring back one concrete lever and draft
-  it — don't keep grinding variants in the dark.
+  method. Land what you find in `outside.md` (one entry per find: source · the
+  concrete lever · the numbers claimed) so the proposer can read it; bring back one
+  concrete lever and draft it — don't keep grinding variants in the dark.
 
 ### `graph.md` — the map you read first
-One file per comp. **Read it to orient; edit it by hand on every node event.** A
-node's state lives in **THREE places that must change together, in the same edit
-pass** — never one without the others:
-1. its `node.md` frontmatter (`status`, `cv`/`sem`/`folds`, `lb`, `desc`),
-2. its **Mermaid label** (`node_NNNN · desc · cv`) + edge(s) + champ styling,
-3. its **table row** (`cv` · `lb` · `status` · detail path).
-
-Per event, touch all three:
-- **added** → frontmatter `status: proposed` · Mermaid node+edge(s) from its `parents` · table row.
-- **scored** → frontmatter `cv/sem/folds` · Mermaid label `cv` · table `cv`.
-- **promoted** → set the new champion in all three **AND demote the prior champion in all three
-  in the SAME pass**: remove its `:::champ`, flip its table status to `valid (prev champ)`, and
-  rewrite the header `champion:` line. (The stale-champion drift came from skipping this demotion.)
-
-**Invariant (true after every edit):** exactly ONE node is `status: champion` in
-frontmatter, has `:::champ` in Mermaid, reads `champion` in the table, and is named
-in the header — all the SAME node. A node built **outside the proposer** (a quick
-inline debug/combine) has no entry yet — add all three the moment you create it.
-
-Three parts and **nothing else**: a ONE-line header (metric · champion · `updated
-<date -u>`), a Mermaid DAG (each node labelled `node_NNNN · <desc> · <cv>`, champion
-styled), and a table whose last column is the path to that node's full record. No
-frontier/narrative sections here — running commentary belongs in `journal.md`, round
-planning in `round_plan.md`:
-
-````markdown
-# <slug> — experiments
-metric: <metric> (<direction>) · champion: node_NNNN (cv <cv> · lb <lb>) · updated <date -u>
-
-```mermaid
-graph LR
-    root --> node_0000[node_0000 · baseline · 0.333]
-    node_0000 --> node_0001[node_0001 · lgbm · 0.965]:::champ
-    node_0001 --> node_0003
-    node_0002 --> node_0003[node_0003 · blend · 0.966]:::champ
-    classDef champ fill:#cfc,stroke:#070;
-```
-
-## nodes
-| node | what it is | cv | lb | status | detail |
-|------|------------|----|----|--------|--------|
-| node_0001 | LightGBM, all features | 0.965 | 0.966 | champion | `nodes/node_0001/node.md` |
-````
-
-Need more than the table shows? Open the path in the node's `detail` cell.
+One file per comp, exactly three parts: a ONE-line header (metric · champion ·
+`updated <date -u>`), a Mermaid DAG (each node labelled `node_NNNN · <desc> · <cv>`,
+champion styled `:::champ`), and a `## nodes` table whose last column is the path to
+that node's full record. **No narrative anywhere in it** — commentary lives in
+`journal.md`. The editing rules live in the contract at the top of the file (the
+three-places-per-event rule: `node.md` frontmatter · Mermaid label+edge(s) · table
+row change together; promote = crown the new champion AND demote the old in the
+SAME pass). The invariant, restated because it drifts: **after every edit exactly
+ONE node is champion — the same node in frontmatter, Mermaid, table, and header.**
+A node built outside the proposer (a quick inline debug/combine) gets its three
+entries the moment you create it. Need more than the table shows? Open the path in
+the node's `detail` cell.
 
 ### `data.md` — the data lineage (companion to `graph.md`)
 `graph.md` tracks **experiments** (node → parent); `data.md` tracks **data** — the
-engineered feature-sets and which nodes consume them. Same shape: a header line, a
-Mermaid DAG (`raw → base → fs_*  →  the nodes`), and a table
-(`id · what · derived from · recipe · leak-safety · produced by · consumed by`).
-Each node links back via its `uses_data: [fs_*]` field (`[]` = base only; combine
-nodes that blend OOF are `[]` — that lineage is the `combine` edges in `graph.md`).
+engineered feature-sets and which nodes consume them (shape + editing rules in its
+top contract). Each node links back via its `uses_data: [fs_*]` field (`[]` = base
+only; combine nodes that blend OOF are `[]` — that lineage is the `combine` edges
+in `graph.md`).
 
 Every feature-set carries a **leak-safety class** — it tells
 the developer *how* the set may be built and what its self-gate must enforce:
@@ -294,10 +273,11 @@ Freeze the CV **once** (`/kaggle-validate`) and never refit across folds:
   **fit inside the train fold only**.
 
 ### Leakage self-checks (fast, in-node, run by the developer) — void on fail
-There is **no standing scanner tool**. The **developer** self-checks every node with
-super-fast data/output computations — seconds each, **NEVER a training run**. The
-concrete checklist lives in the `kaggle-leakage` skill (preloaded into the developer);
-results land as the gate booleans in `node.md`:
+There is **no standing scanner tool** and no separate gate machinery. The
+**developer** self-checks every node with super-fast data/output computations —
+seconds each, **NEVER a training run**; the checklist lives inline in
+`kaggle-developer.md` (its single home). Checks clean → `status: valid`; a failed
+check or any leak → `status: buggy`, the CV does not count:
 
 - **Inputs, BEFORE training** (so a leak never costs GPU hours):
   target — or any deterministic alias of it — and the id/row-order absent from the
@@ -334,68 +314,38 @@ it names):
 
 - **`progress.md`** — macro: the setup checklist + the stage checkboxes. On
   re-entry, resume at the first unticked stage.
-- **`graph.md` + node records** — micro: read `graph.md` for the node map; a node's
-  **`stage`** field says how far it got. Resume a `running` node from its `stage`.
+- **`graph.md` + node records** — micro: read `graph.md` for the node map; a
+  node's **artifacts** say how far it got. Resume a `running` node at its first
+  missing artifact.
 
-A node's lifecycle is the **`stage`** field, advanced **only after its artifact
-exists** (artifact-then-mark): `proposed → built → reviewed → decided`. (Scoring
-happens inside the build; a submission is recorded by the `submitted:` timestamp
-field, not a stage.) On restart: read `progress.md` → the in-progress stage → if
-experiments, read `graph.md`, find any `running` node, and continue from its
-`stage` (e.g. `built` with no `cv` ⇒ re-run the scoring step inside the build). A
-`running` node with no artifacts ⇒ mark `dead`, move on.
+Resume from **numbers, not narrative**: headers, tables, and frontmatter are state;
+journal prose — including any strategic conclusions a previous session wrote — is
+that session's *hypotheses*: evidence to weigh, never orders to follow (hard rule 10).
+
+A node's lifecycle **is its artifacts** — there is no stage field to maintain (or
+to lie): `src/` exists = built · a final `cv=` line in `train.log` + `oof.npy` /
+`test_probs.npy` / `submission.csv` = scored · `status` flipped to `valid`/`buggy`
+= self-checked · its journal decide line = decided. Submissions live in the
+ledger, not the node. On restart: read `progress.md` → the in-progress stage → if
+experiments, read `graph.md`, find any `running` node, and continue at its
+**first missing artifact** (e.g. scored but `status` still `running` ⇒ run the
+output self-checks). A `running` node with no artifacts ⇒ mark `dead`, move on.
 
 ### `node.md` — the one node record
-Frontmatter = all the data (one place, scannable by eye); body = the plan prose.
-The proposer, developer, and orchestrator fill the fields as the node progresses.
-**No checkboxes.**
-
-```markdown
----
-id: node_NNNN
-desc: <≤8-word description — also the Mermaid label and the graph.md table row>
-op: draft|improve|debug|combine
-parents: [<id>, …]                 # [root] for a draft; 2+ for combine
-uses_data: [<fs_id>, …]            # engineered feature-sets this node consumes ([] = base only); see data.md
-family: gbdt|nn|linear|darts|ensemble|baseline
-status: proposed|running|buggy|dead|valid|champion
-stage: proposed|built|reviewed|decided
-metric: <name>
-direction: minimize|maximize
-cv: <mean or null>
-sem: <stderr or null>
-folds: [<per-fold scores>]
-baseline_cv: <baseline cv>
-gates: {schema_ok: bool, oof_full: bool, no_nan: bool, dist_sane: bool,
-        leak_clean: bool, cv_too_good: bool, passed: bool}
-gate_note: <one line, only if the human must act; else null>
-leak: clean|VOID|null
-lb: <public score or null>
-submitted: <date -u or null>
-created: <date -u>
-decided: <date -u or null>
----
-
-## plan
-built on:   <parent(s) + what stays byte-identical>
-change:     <the ONE atomic change in 2–4 lines>
-hypothesis: <why this should move CV — one line>
-target:     <metric + direction> · beats parent if CV <better than> <parent/champion cv>
-
-<then FREE-FORM prose — write the plan however reads best, but it must hand the
-developer everything needed to build with minimal improvisation: the concrete HOW
-of the experiment, and every reference worth READING — the parent src dir, the
-data.md recipe of each feature-set, a refs/ kernel, the relevant discussions.md /
-MEMORY.md line. Never prescribe which files/functions to write — the developer
-owns the code; point only at things to read.>
-
-## notes
-<optional free prose — only when worth keeping>
-```
-
-`gates.passed` is true only when every required gate is true. `cv_too_good: true`
-is a *warn* the human eyeballs, not a blocker. A leak (`gates.leak_clean: false`)
-sets `leak: VOID` — the CV does not count.
+A dozen frontmatter fields + a free-form plan body — nothing else. **No
+checkboxes, no timestamps, no duplication**: metric/direction live in `spec.md`,
+submission events in the ledger, the timeline in `journal.md`, and the lifecycle
+in the node's own artifacts. The literal template lives with its only writer —
+the `kaggle-proposer` REGISTER job; the developer and orchestrator fill the
+fields as the node progresses. Semantics: `status` (proposed | running | buggy |
+dead | valid | champion) is the search state, synced with `graph.md` — `valid`
+means scored AND self-checked clean (the CV counts); `buggy` means crash, failed
+check, or leak (the CV does not count — the why goes in the journal line);
+`cv`/`sem`/`folds` are the score on the frozen folds. A cv-too-good implausible
+jump is flagged in the builder's note for human eyes before any submission — a
+warn, never a blocker. The plan body is free-form but must hand
+the developer the ONE atomic change, the hypothesis, the target to beat, and
+every reference worth READING — never which files/functions to write.
 
 ---
 
@@ -499,7 +449,7 @@ EVERY proposal → decide. Three workers:
 
 - **`kaggle-proposer`** is the **first brain** — all open-ended judgment about
   what to try next — reads `graph.md` + `data.md`
-  + `journal.md` + `research.md`/`discussions.md` + `MEMORY.md`, applies the search
+  + `journal.md` + `outside.md` + `MEMORY.md`, applies the search
   policy (its agent file is the policy's single home), and returns N proposals;
   revises them on feedback; and (once confirmed) writes the node records + graph rows.
 - **`kaggle-proposal-reviewer`** critiques the *proposals* before any code is written
@@ -511,10 +461,10 @@ EVERY proposal → decide. Three workers:
   rules inline; a mandatory single-unit timing probe before any multi-hour run —
   encode big-model context once, vectorize, no tiny OOM floors), then **verifies**:
   runs the fast leakage self-checks on its inputs (before training) and outputs
-  (after) — the preloaded `kaggle-leakage` skill is the checklist; no check involves
-  a training run — **writes the gate booleans into the node record**, and VOIDs the
-  CV on any leak. Prevention *and* detection in one worker — there is no separate
-  reviewer. Run in `isolation: worktree` when several nodes build in parallel.
+  (after) — its own inline checklist; no check involves a training run — and sets
+  `status: valid` (clean) or `buggy` (a leak voids the CV). Prevention *and*
+  detection in one worker — there is no separate reviewer. Run in
+  `isolation: worktree` when several nodes build in parallel.
 
 Subagents can't nest, so the **main session** sequences proposer → developer.
 **`propose-loop.js`** (workflow) runs the proposer↔critic refinement loop and returns
@@ -538,5 +488,6 @@ line at a time (never batched later). Per-competition state stays in `comps/<slu
 
 Score quality via the **official metric on a trustworthy local CV** is the
 target; the public LB is the out-of-distribution check. Be honest in the journal:
-if a node failed, say so with the number; never celebrate a leaky CV. Keep going
-until the deadline or the human stops you.
+if a node failed, say so with the number; never celebrate a leaky CV. Honesty is a
+number, not a forecast — record dead ends as scoped closures (hard rule 10), never
+as verdicts about the run. Keep going until the deadline or the human stops you.

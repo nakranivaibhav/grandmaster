@@ -99,7 +99,7 @@ PY
 The remaining `n_splits-1` folds are the working CV. Be explicit in
 `validation.md` that the holdout rows are excluded from every `.fit(` —
 encoders, scalers, target-encoders, feature stats, model fit. (This is enforced
-later by the developer's fast leakage self-checks — the `kaggle-leakage` skill;
+later by the developer's fast leakage self-checks — inline in `kaggle-developer.md`;
 here you just record the contract.)
 
 ## 4 · Write `validation.md` (the WHY, in plain language)

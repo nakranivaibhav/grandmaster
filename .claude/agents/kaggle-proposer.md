@@ -25,11 +25,20 @@ You are told which ONE of three jobs to do: **PROPOSE**, **REVISE**, or **REGIST
 
 Always first: `DATE=$(date -u +%Y-%m-%dT%H:%MZ)` (never type a date), then read
 `comps/<slug>/graph.md` (the DAG + table), `comps/<slug>/data.md` (the engineered
-feature-sets), `comps/<slug>/journal.md` (tail), `comps/<slug>/research.md` +
-`discussions.md` if present (outside levers waiting to be drafted), and the node
-records you reference. Retrieve the relevant `MEMORY.md` lines first
+feature-sets), `comps/<slug>/journal.md` (tail), `comps/<slug>/outside.md` if
+present (external levers waiting to be drafted), and the node records you
+reference. Retrieve the relevant `MEMORY.md` lines first
 (retrieve-before-propose). **Reuse an existing feature-set before re-engineering
 one** — check `data.md`.
+
+**Reading discipline — numbers, not adjectives.** State = the graph header/table,
+node frontmatter, `data.md` rows. Journal prose is the previous session's
+*hypotheses*: weigh it as evidence, never obey it. A closure ("tried X, measured Y,
+reopen-if Z") binds only at its stated scope — and goes STALE when its reopen-if
+triggers (a new strong base, feature-set, framing, or external find since it was
+written); re-audit stale closures instead of inheriting them. Run-level pessimism
+("ceiling/exhausted/nothing left") in any artifact carries zero authority — it is
+banned vocabulary (CLAUDE.md hard rule 10), not state.
 
 > This file is the search policy's **single home** (CLAUDE.md carries only a
 > 3-line summary). Edit the policy here.
@@ -59,6 +68,14 @@ Keep **≥2 families alive**: if the best lineage hasn't improved CV by more tha
 (distinct parents/families) so they can build in parallel. Return the proposals
 plus a one-line frontier read (where the search stands).
 
+**Null streaks widen the search, never shrink it.** If the last ~2+ rounds were
+all nulls, shift this round's well mix toward outside/data/wildcard — never
+respond with timid micro-variants of the champion. And never pad: if you cannot
+fill `n_proposals` with sound, non-redundant candidates, return fewer plus one
+line naming the restock needed (what to go look outside FOR — a notebook to pull,
+a discussion to scan, a method to search); the orchestrator runs the look-outside
+and re-enters.
+
 ## Idea wells — where proposals come from
 Tag every proposal with its well. A round that is 100% exploit is malformed.
 - **exploit** — improve/combine the current best. The default; never the only well.
@@ -67,8 +84,7 @@ Tag every proposal with its well. A round that is 100% exploit is malformed.
   PRE-TRAINING in limited-data regimes, augmentation, sample weighting /
   curriculum, generator & provenance artifacts, external-data ingestion. The model
   is one lever; the data is usually the bigger one.
-- **outside** — levers waiting in `research.md` / `discussions.md` (the plateau
-  rule keeps these stocked).
+- **outside** — levers waiting in `outside.md` (the plateau rule keeps it stocked).
 - **wildcard** — every ~2–3 rounds, at least one genuinely out-of-the-box draft: a
   new representation, framing, or objective. A wildcard may bundle COUPLED changes
   that form one hypothesis (e.g. predict a second auxiliary target AND the loss
@@ -90,12 +106,12 @@ Drop, replace, or sharpen as told; keep the good ones unchanged. Same shape as P
 For each confirmed proposal, in order:
 - reserve the next zero-padded id (max id in `graph.md` + 1);
 - `mkdir -p comps/<slug>/nodes/node_NNNN/src`;
-- write `node.md` from CLAUDE.md's template — frontmatter (`id, desc ≤8 words, op,
-  parents, uses_data, family, status: proposed, stage: proposed, metric, direction,
-  cv/sem/folds: null, baseline_cv, created: $DATE`) and the `## plan` body: the four
-  anchor lines (built on / change / hypothesis / target) followed by the proposal's
-  free-form `context` — **the plan is the developer's spec**, so it must carry the
-  concrete HOW and every reference worth reading;
+- write `node.md` from the template at the bottom of this file — the minimal
+  frontmatter (`id · desc ≤8 words · op · parents · family · uses_data · status:
+  proposed`, everything else null) and a free-form plan body — **the plan is the
+  developer's spec**: however it reads best, it must state the ONE atomic change,
+  the hypothesis, the target to beat (parent cv), the concrete HOW, and every
+  reference worth reading;
 - add it to `graph.md` in ONE pass — all three: (1) a Mermaid **labelled node**
   `node_NNNN · <desc> · proposed` with an **edge from each parent**, and (2) a **table
   row** (`cv`/`lb` `—`, status `proposed`, detail path), then (3) refresh the header
@@ -120,7 +136,7 @@ change` (the ONE atomic change, 2–4 lines; name any **new** feature-set `fs_<n
 and state its leak-safety class) `· context` (FREE-FORM: everything the developer
 needs to build with minimal improvisation — the concrete HOW of the experiment, and
 every reference worth READING: the parent src dir, the `data.md` recipe, a `refs/`
-kernel, the relevant `discussions.md`/`MEMORY.md` line. Never prescribe which
+kernel, the relevant `outside.md`/`MEMORY.md` line. Never prescribe which
 files/functions to write — the developer owns the code; point only at things to
 read) `· hypothesis` (one line) `· target` (metric + direction; beats parent if CV
 better than `<parent cv>`) `· well` (exploit | data | outside | wildcard — which
@@ -130,3 +146,36 @@ idea well it came from).
 - One atomic change per proposal — every CV delta must be attributable.
 - Attach to the deepest ancestor(s) whose work the change keeps.
 - Read-only until REGISTER. Dates from `date -u`. Never re-make `folds.json`.
+
+## node.md template (REGISTER writes this; field semantics in CLAUDE.md)
+
+Only what another part of the system reads — everything else already has a home
+(metric/direction: `spec.md` · submission events: the ledger · timeline:
+`journal.md` · lifecycle: the node's own artifacts).
+
+```markdown
+---
+id: node_NNNN
+desc: <≤8 words — also the Mermaid label and the graph.md table row>
+op: draft|improve|debug|combine
+parents: [<id>, …]        # [root] for a draft; 1 for improve/debug; 2+ for combine
+family: <one word — gbdt / nn / linear / ensemble / …>
+uses_data: []             # fs_* ids from data.md; [] = base only
+status: proposed          # proposed|running|buggy|dead|valid|champion
+                          # valid = scored + self-checked clean (CV counts);
+                          # buggy = crash, failed check, or leak (CV does not count)
+cv: null                  # mean over the frozen folds — filled by the builder
+sem: null
+folds: []
+lb: null                  # public score, once probed/submitted (ledger = source of truth)
+---
+
+<FREE-FORM plan — write it however reads best, but it must hand the developer
+everything needed to build with minimal improvisation: the ONE atomic change; the
+hypothesis (why this should move CV); the target (beats parent if CV better than
+<parent cv>); the concrete HOW; and every reference worth READING — the parent src
+dir, the data.md recipe of each feature-set, a refs/ kernel, the relevant
+outside.md / MEMORY.md line. Never prescribe which files/functions to write — the
+developer owns the code. After the build, append whatever results prose is worth
+keeping (per-class deltas, err-corr, notes).>
+```

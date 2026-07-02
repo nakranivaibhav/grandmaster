@@ -26,8 +26,8 @@ and stop.
 
 **Resume check.** If `$COMP/progress.md` already exists, this comp was started
 before — read it, resume at the first unticked stage (and if experiments exist,
-read `graph.md` for the node map; a `running` node resumes from its `stage`
-field). Do NOT re-scaffold. Only continue below if it is absent.
+read `graph.md` for the node map; a `running` node resumes at its first missing
+artifact). Do NOT re-scaffold. Only continue below if it is absent.
 
 ## 1 · scaffold comps/<slug>/
 
@@ -39,16 +39,49 @@ NOW=$(date -u +%Y-%m-%dT%H:%MZ)   # 2025-01-31T09:12Z
 mkdir -p "$COMP/data" "$COMP/champion"
 ```
 
-Create these files. Touch the empty append-only logs first:
+Create these files, each **stamped with its contract** — an HTML comment at the
+top that is the single home of that file's format rules (what belongs in it, what
+never does, what else must change with it). Every later editor obeys the contract
+of the file it edits.
+
+The append-only logs first:
 
 ```bash
-: > "$COMP/journal.md"; : > "$COMP/submissions.md"
+cat > "$COMP/journal.md" <<'EOF'
+<!-- journal.md contract
+WHAT: append-only history — ONE `date -u` timestamped line per event (node verdict,
+probe, decision, round open/close, session summary). Facts + numbers.
+A dead end is a SCOPED CLOSURE: "tried X, measured Y, reopen-if Z" — never a verdict
+about the run ("ceiling/exhausted/impossible/nothing left" are banned, hard rule 10).
+NEVER: edit or delete a past line. Narrative lives here and ONLY here.
+-->
+EOF
+cat > "$COMP/submissions.md" <<'EOF'
+<!-- submissions.md contract
+WHAT: append-only ledger, one row per REAL Kaggle submission:
+| <date -u +%Y-%m-%dT%H:%MZ> | node | cv | lb | note |
+Budget is DERIVED from these rows (rows starting "| <today's date>") — never edit or
+delete a past row. Human-directed LB probes carry PROBE in note (~2/day max).
+-->
+EOF
 ```
 
-`graph.md` — THE MAP, scaffolded as an empty graph (a header line, a Mermaid block
-with just the `root`, and an empty `## nodes` table; downstream stages add nodes):
+`graph.md` — THE MAP, scaffolded as an empty graph (contract on top, then a header
+line, a Mermaid block with just the `root`, and an empty `## nodes` table;
+downstream stages add nodes):
 
 ````markdown
+<!-- graph.md contract
+WHAT: the experiment map — exactly three parts: ONE-line header (metric · champion ·
+updated <date -u>) · Mermaid DAG (labels `node_NNNN · desc · cv`, champion :::champ) ·
+`## nodes` table (last col = path to the node record). NOTHING else — no narrative,
+no session notes, no strategy (journal.md owns those).
+ON any node event, change THREE places together: node.md frontmatter · Mermaid
+label+edge(s) · table row.
+ON promote: crown the new champion AND demote the old in the SAME pass (frontmatter
+status, :::champ, table status, header champion: line).
+INVARIANT after every edit: exactly ONE champion — the same node in all four places.
+-->
 # <slug> — experiments
 metric: <m> (<dir>) · champion: none · updated <TODAY>
 
@@ -77,6 +110,13 @@ autonomy: interactive
 (regenerate it on every read; deadline filled from spec.md once written):
 
 ```markdown
+<!-- progress.md contract
+WHAT: the thin macro-resume checklist — derived header line + setup boxes + stage
+boxes. Tick a box only after its named artifact exists (artifact-then-mark).
+NEVER: narrative, session summaries, results commentary, strategy — journal.md owns
+those. This file stays ~this size for the comp's whole life.
+ON read: regenerate the header line from the shell (date -u; budget from the ledger).
+-->
 # progress — <slug>
 today (UTC): <TODAY>   submissions: 0/<limit, tbd from spec> (resets 00:00 UTC)   deadline: <tbd from spec>
 
@@ -96,9 +136,47 @@ today (UTC): <TODAY>   submissions: 0/<limit, tbd from spec> (resets 00:00 UTC) 
 - [ ] experiment   → /kaggle-experiment
 ```
 
+`outside.md` — external intel, empty at bootstrap (the look-outside habit fills it):
+
+```markdown
+<!-- outside.md contract
+WHAT: distilled external intel — public notebooks, discussion threads, papers,
+winner recipes. One entry per find: source (link / kernel ref) · the concrete lever
+it suggests · the numbers claimed. The proposer reads this file; snapshot full
+artifacts under refs/, don't paste them here.
+NEVER: mood, verdicts, strategy narrative — only facts a proposal can cite.
+-->
+# outside — <slug>
+```
+
+`data.md` — the data-lineage map, scaffolded at `raw → base` (the proposer adds
+feature-set rows on register):
+
+````markdown
+<!-- data.md contract
+WHAT: data lineage — ONE-line header · Mermaid (raw → base → fs_* → consuming
+nodes) · one table row per engineered feature-set:
+| id | what | derived from | recipe | leak-safety | produced by | consumed by |
+leak-safety ∈ stateless | fit_in_fold (defined in CLAUDE.md — it drives the
+developer's self-gate). The proposer writes rows + each node's uses_data on
+register; keep `consumed by` current. NEVER: narrative.
+-->
+# <slug> — data lineage
+base = as-downloaded raw (cleaning per eda.md)
+
+```mermaid
+graph LR
+    raw --> base
+```
+
+## feature-sets
+| id | what | derived from | recipe | leak-safety | produced by | consumed by |
+|----|------|--------------|--------|-------------|-------------|-------------|
+````
+
 Append the first journal line (timestamped, one line per event); leave
-`submissions.md` empty and `graph.md` at its empty-map scaffold (downstream stages
-add nodes):
+`submissions.md` at its contract-only stamp and `graph.md` at its empty-map
+scaffold (downstream stages add rows/nodes):
 
 ```bash
 printf '%s  bootstrap comps/%s  (autonomy=interactive)\n' "$NOW" "$SLUG" >> "$COMP/journal.md"
@@ -203,12 +281,22 @@ the fetched page value, journal it; if it cannot be determined even then, this i
 a one-time human item like rules-acceptance — STOP and ask.
 
 Resolve the deadline to an absolute UTC date from the overview's Timeline (final
-submission deadline). Write `spec.md` with the **prose summary first** (a `#
-spec — <Title>` heading + 2–4 plain sentences: what you predict, on what data,
-scored how, how a submission is shaped, any notable rule like code-competition /
-no-external-data / daily limit), **then** a `## machine` heading followed by the
-block below wrapped in a triple-backtick ```yaml ... ``` fence (downstream skills
-parse exactly these keys, so keep every one — use `null`/`[]` when N/A):
+submission deadline). Write `spec.md` starting with its contract comment:
+
+```markdown
+<!-- spec.md contract
+WHAT: the competition contract — prose summary + a fenced yaml machine block
+(downstream skills parse exactly those keys). Written once at kaggle-start; edit
+only if the comp's rules/metric truly change, then re-run the round-trip check.
+-->
+```
+
+then the **prose summary** (a `# spec — <Title>` heading + 2–4 plain sentences:
+what you predict, on what data, scored how, how a submission is shaped, any notable
+rule like code-competition / no-external-data / daily limit), **then** a
+`## machine` heading followed by the block below wrapped in a triple-backtick
+```yaml ... ``` fence (downstream skills parse exactly these keys, so keep every
+one — use `null`/`[]` when N/A):
 
     slug: <slug>
     title: <title>

@@ -74,31 +74,44 @@ the champion. Report:
 
 ## 4 · Recent journal
 `tail -n 6 "$C/journal.md"` (append-only, one timestamped line per node). Echo
-those lines verbatim under "Recent activity" — they're the densest history.
+those lines verbatim under "Recent activity" — they're the densest history. Treat
+any strategic conclusions in them as the previous session's *hypotheses*, not
+established state — the numbers are the state (hard rule 10).
 
-## 5 · Resume pointer (this is the entry point)
+## 5 · Contract audit (report, don't fix)
+Each comp .md carries its contract as an HTML comment at its top. Spot-check the
+core four against theirs and report violations on one `Hygiene:` line (this skill
+never edits — the next acting session repairs):
+- `progress.md` — thin checklist only? Flag narrative/session-summary blocks.
+- `graph.md` — ONE-line header? Exactly one champion across header/Mermaid/table?
+- `journal.md` (tail) — closures scoped (*tried X, measured Y, reopen-if Z*)? Flag
+  run-level verdict vocabulary ("ceiling/exhausted/impossible/nothing left").
+- `data.md` — header + Mermaid + table rows only, no narrative.
+For a comp bootstrapped before contracts existed, audit against CLAUDE.md's rules
+instead. Nothing to flag → `Hygiene: clean`.
+
+## 6 · Resume pointer (this is the entry point)
 Follow the resume model end-to-end and state **one concrete next action**:
 1. From `progress.md`, take the first unticked stage.
 2. If that stage is **before** experiments → next action is "run `/<that-stage's
    skill>`" (e.g. unchecked `validation` → `/kaggle-validate`).
 3. If at the **experiment** stage → read `graph.md` to rebuild the frontier, then:
-   - If a node is `running`: open `$C/nodes/<id>/node.md`, read its `stage` field
-     (`proposed → built → reviewed → decided`), and say "resume node `<id>` at:
-     `<next stage after `stage`>` → `<the artifact that stage produces>`" (e.g.
-     `built` with null `cv` ⇒ re-run the scoring step inside the build). If that
-     node's `stage` is past `proposed` **but no artifacts are on disk**, say it's
-     stale → "mark `<id>` dead and pick the next operator" (don't resume a ghost).
+   - If a node is `running`: its artifacts ARE its lifecycle — check which exist
+     (`src/` = built · a final `cv=` line in `train.log` + `oof.npy`/
+     `test_probs.npy`/`submission.csv` = scored · `status` flipped to
+     `valid`/`buggy` = self-checked · its journal decide line = decided) and say
+     "resume node `<id>` at: <the first missing artifact>". A `running` node with
+     NO artifacts is a ghost → "mark `<id>` dead and pick the next operator".
    - If nothing is `running`: apply the search policy (single home:
      `.claude/agents/kaggle-proposer.md`) to name the next operator; state which
      and why in a sentence.
 4. If `submissions: <lim>/<lim>` for today, add: "submission budget spent — resets
    00:00 UTC; CV work can continue, no submit until reset."
 
-Verify a node's `stage` against the artifacts it implies before trusting it
-(artifact-then-mark): a `stage` past the file that proves it is a lie — report the
-mismatch instead of believing it.
+Never trust a label over the artifact it names (artifact-then-mark): a field ahead
+of its file is a lie — report the mismatch instead of believing it.
 
-## 6 · The readout (print this, then stop)
+## 7 · The readout (print this, then stop)
 No Decision Card, no gate, no waiting — `/kaggle-status` is read-only and always
 just reports. Use plain language for a smart non-specialist; give **file paths**,
 not in-chat thumbnails.
@@ -112,7 +125,8 @@ Champion:    <node id> · CV <metric>=<val> (<dir>) · LB <lb|not scored>  → c
 Recent:      (last journal lines)
   <line>
   <line>
-Next:        <the one concrete resume action from §5>
+Hygiene:     <clean | the contract violations from §5>
+Next:        <the one concrete resume action from §6>
 ```
 
 Keep it tight. End after printing — do not proceed into the named next stage; the

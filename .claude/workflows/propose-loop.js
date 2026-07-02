@@ -40,7 +40,7 @@ const PROPOSAL = {
     desc: { type: 'string', description: '≤8-word label (Mermaid + table row)' },
     uses_data: { type: 'array', items: { type: 'string' }, description: 'engineered feature-sets consumed (data.md fs_ ids); [] = base only. Name any NEW set fs_<name> in `change`.' },
     change: { type: 'string', description: 'the ONE atomic change, 2–4 lines' },
-    context: { type: 'string', description: 'FREE-FORM build context — the developer\'s spec: the concrete HOW of the experiment + every reference worth READING (parent src dir, data.md recipe, refs/ kernel, discussions.md/MEMORY.md line). Never prescribes which files/functions to write.' },
+    context: { type: 'string', description: 'FREE-FORM build context — the developer\'s spec: the concrete HOW of the experiment + every reference worth READING (parent src dir, data.md recipe, refs/ kernel, outside.md/MEMORY.md line). Never prescribes which files/functions to write.' },
     hypothesis: { type: 'string' },
     target: { type: 'string', description: 'metric + direction; beats parent if CV better than <parent cv>' },
   },
