@@ -39,9 +39,9 @@ NOW=$(date -u +%Y-%m-%dT%H:%MZ)
 Write `$node/node.md` with the minimal frontmatter (the template lives in
 `kaggle-proposer.md` — this is the one node written outside the proposer):
 `id: node_0000` · `desc` · `op: draft` · `parents: [root]` · `family: baseline` ·
-`uses_data: []` · `status: running` · `cv`/`sem`/`folds`/`lb`/`gates`: null.
-There is **no** `metrics.md` and **no** `gate_report.md` — scores and the gate
-verdict land in this frontmatter as the artifacts appear (artifact-then-mark).
+`uses_data: []` · `status: running` · `cv`/`sem`/`folds`/`lb`: null.
+Scores and the self-check verdict land in this frontmatter as the artifacts
+appear (artifact-then-mark).
 Then a short free-form plan body stating: the constant rule (which constant + why,
 1–2 lines, e.g. "predict the global train median for every test row"), the
 hypothesis ("establishes the schema-correct data→CV→submit pipe and a floor CV
@@ -114,9 +114,8 @@ grep -E "cv=|Traceback|Error|Killed" $node/train.log
 ```
 No traceback → write the CV numbers straight into the **node.md frontmatter**
 (no `metrics.md`): set `cv: <mean>`, `sem: <sem>`, `folds: [<per-fold scores>]`
-— this constant's cv is the floor every later node must beat. There is no
-separate unit-test gate for a constant — the fast self-checks + validate are the
-gates.
+— this constant's cv is the floor every later node must beat. The fast
+self-checks + `validate_submission` are the only gates a constant needs.
 
 ## Step 4 — fast self-checks (constant baseline passes trivially)
 No tool runs here — these are the developer-style in-node self-checks (the
@@ -145,28 +144,14 @@ Must print `OK:` and exit 0. Any `INVALID:` line (column/row/id/NaN/inf) → fix
 solution.py and rerun Steps 3–5. On `OK:`, set `status: valid` in node.md (all
 self-checks + schema clean — the CV counts).
 
-## Step 6 — create graph.md and make node_0000 the champion
+## Step 6 — put node_0000 on the map and make it champion
 This is the first valid node, so it is the champion by definition (best valid CV).
-1. Create `comps/$slug/graph.md` (the map — there is no `tree.md`) from the
-   CLAUDE.md template: a header line (`metric: <metric> (<direction>) · champion:
-   node_0000 (cv <cv> · lb —) · updated $(date -u +%F)`), a Mermaid `graph LR`
-   with the root→node_0000 edge and the champion styled, and a `## nodes` table
-   whose last column is the node-record path:
-   ````markdown
-   # <slug> — experiments
-   metric: <metric> (<direction>) · champion: node_0000 (cv <cv> · lb —) · updated <date -u +%F>
-
-   ```mermaid
-   graph LR
-       root --> node_0000[node_0000 · baseline · <cv>]:::champ
-       classDef champ fill:#cfc,stroke:#070;
-   ```
-
-   ## nodes
-   | node | what it is | cv | lb | status | detail |
-   |------|------------|----|----|--------|--------|
-   | node_0000 | baseline · constant <mean\|median\|base-rate> | <cv> | — | champion | `nodes/node_0000/node.md` |
-   ````
+1. Update `comps/$slug/graph.md` (scaffolded empty at bootstrap — obey its top
+   contract): set the header line to `metric: <metric> (<direction>) · champion:
+   node_0000 (cv <cv> · lb —) · updated $(date -u +%F)`; add the Mermaid edge
+   `root --> node_0000[node_0000 · baseline · <cv>]:::champ` plus the
+   `classDef champ fill:#cfc,stroke:#070;` line; and add the table row
+   `| node_0000 | baseline · constant <mean\|median\|base-rate> | <cv> | — | champion | `nodes/node_0000/node.md` |`.
 2. Byte-copy into `champion/` (cp, never symlink — CLAUDE.md semantics):
 ```bash
 mkdir -p comps/$slug/champion

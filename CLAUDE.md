@@ -27,9 +27,8 @@ the first unticked stage:
 4. **kaggle-baseline** — dumb baseline → first submission → champion                   · gate: submit
 5. **kaggle-experiment** — propose (proposer↔critic) → build EVERY proposal → gate → decide · gates: experiment_plan, submit
 
-The experiment loop is the **terminal stage** — there is no "finish" step. You keep
-proposing, building, and submitting better nodes until the human stops you or the
-deadline hits. `kaggle-status` is read-only and available any time (it's also the
+The experiment loop is the **terminal stage** — you keep proposing, building, and
+submitting better nodes until the human stops you or the deadline hits. `kaggle-status` is read-only and available any time (it's also the
 resume entry).
 
 Two on-demand helpers (not pipeline stages — invoke only when the human asks):
@@ -256,8 +255,8 @@ parent) → **combine** de-correlated nodes when a blend's OOF beats the best si
 periodically **revive** discarded nodes (a re-examination habit that emits a normal
 draft/improve/combine — not a 5th operator). Proposals draw from four **idea wells**
 — exploit · data-centric (favored) · outside · wildcard — defined in the proposer
-file. The orchestrator builds **every** confirmed proposal; there is no best-first
-frontier-expansion controller.
+file. The orchestrator builds **every** confirmed proposal — the proposer prunes,
+the orchestrator doesn't.
 
 ---
 
@@ -273,9 +272,8 @@ Freeze the CV **once** (`/kaggle-validate`) and never refit across folds:
   **fit inside the train fold only**.
 
 ### Leakage self-checks (fast, in-node, run by the developer) — void on fail
-There is **no standing scanner tool** and no separate gate machinery. The
-**developer** self-checks every node with super-fast data/output computations —
-seconds each, **NEVER a training run**; the checklist lives inline in
+The **developer** self-checks every node with super-fast data/output computations
+— seconds each, **NEVER a training run**; the checklist lives inline in
 `kaggle-developer.md` (its single home). Checks clean → `status: valid`; a failed
 check or any leak → `status: buggy`, the CV does not count:
 
@@ -296,10 +294,9 @@ check or any leak → `status: buggy`, the CV does not count:
 `tools/make_folds.py` + the frozen `folds.json` (a group key never straddles folds;
 time-series folds are past-only) — not re-checked per node.
 
-Dropped on purpose: adversarial-validation as a standing gate (available only as
-a one-off diagnostic if a big unexplained gap appears); any auto-demote on a
-CV↔LB gap (gap is logged, surfaced, never auto-acted); and any leakage check that
-needs a training run (e.g. shuffled-label controls).
+Adversarial validation is a **one-off diagnostic** — run it only when a big
+unexplained CV↔LB gap appears, never per node. A CV↔LB gap is logged and
+surfaced, never auto-acted. No leakage check may involve a training run.
 
 Every node — **including data-cleaning and feature-engineering nodes** — passes the
 self-checks before its CV counts. A feature that "improves CV" but fails
@@ -322,8 +319,8 @@ Resume from **numbers, not narrative**: headers, tables, and frontmatter are sta
 journal prose — including any strategic conclusions a previous session wrote — is
 that session's *hypotheses*: evidence to weigh, never orders to follow (hard rule 10).
 
-A node's lifecycle **is its artifacts** — there is no stage field to maintain (or
-to lie): `src/` exists = built · a final `cv=` line in `train.log` + `oof.npy` /
+A node's lifecycle **is its artifacts**: `src/` exists = built · a final `cv=`
+line in `train.log` + `oof.npy` /
 `test_probs.npy` / `submission.csv` = scored · `status` flipped to `valid`/`buggy`
 = self-checked · its journal decide line = decided. Submissions live in the
 ledger, not the node. On restart: read `progress.md` → the in-progress stage → if
@@ -390,8 +387,8 @@ exploit. So the scalar is a screen, **not the final arbiter** — the canonical 
    holds on the inviolable holdout** — is a real *keep/combine* candidate even at flat
    global CV. Record the per-class recalls + flip summary in the node record; never
    discard a structurally-distinct node as "wash" on the scalar alone.
-3. **n0047 mirage guardrail (unchanged).** A gain that shows on working-CV but **not
-   on the holdout** is a mirage — kill it. Anything promoted below the old 2·sem
+3. **n0047 mirage guardrail.** A gain that shows on working-CV but **not
+   on the holdout** is a mirage — kill it. Anything promoted below the 2·sem
    scalar, and any narrow label-fit specialist, is **submit-gated on an LB probe**
    before it counts as a champion/finals candidate.
 
@@ -463,7 +460,7 @@ EVERY proposal → decide. Three workers:
   runs the fast leakage self-checks on its inputs (before training) and outputs
   (after) — its own inline checklist; no check involves a training run — and sets
   `status: valid` (clean) or `buggy` (a leak voids the CV). Prevention *and*
-  detection in one worker — there is no separate reviewer. Run in
+  detection in one worker. Run in
   `isolation: worktree` when several nodes build in parallel.
 
 Subagents can't nest, so the **main session** sequences proposer → developer.

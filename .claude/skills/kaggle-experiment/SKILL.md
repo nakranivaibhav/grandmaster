@@ -8,8 +8,8 @@ allowed-tools: Bash, Read, Write, Edit, Agent, Workflow, Skill
 # kaggle-experiment — propose → build all → gate → decide
 
 You are the **orchestrator**. Each round you get a set of proposals, build **every**
-one of them, and promote the best. There is no best-first branching and no pruning
-here — the **proposer** decides what to try; **you build all of it**.
+one of them, and promote the best — the **proposer** decides what to try;
+**you build all of it**.
 
 **Two brains.** The proposer is the **first brain** — all open-ended judgment about
 what to try. You are the **second brain** — referee, historian, and the human's
@@ -57,7 +57,7 @@ sequential call, so the parallel builders in §3 never collide on `graph.md`/`da
 
 Then append ONE `ROUND OPEN` line to `journal.md`
 (`$DATE  ROUND OPEN node_A..node_D — <op·well·one-line rationale each>`) — the
-round's plan lives in the journal + the node records; there is no separate plan file.
+round's plan lives in the journal + the node records.
 
 ## 3 · BUILD-AND-GATE ALL — hand every node to kaggle-developer
 Build **every** registered node: spawn the developers **in parallel** when the nodes
@@ -74,7 +74,7 @@ never an unprofiled multi-hour job), the per-fold CV into `node.md`, `oof.npy` +
 inline checklist — never a training-run check) and sets `status: valid|buggy`. A
 traceback ⇒ `status: buggy` (propose a `debug` node next round); any
 error-severity leak ⇒ `status: buggy` with `LEAK:` in its note (the CV does
-**not** count). One worker builds and proves — there is no separate review step.
+**not** count). One worker builds and proves.
 
 **Report contract:** every developer's report ends with a single `RESULT` line
 (`RESULT node=… cv=… sem=… folds=[…] status=valid|buggy runtime=…
@@ -95,12 +95,20 @@ from it. On a mismatch, trust `node.md` (the artifact) and say so. A `buggy`
 node's CV does not count — leaked or crashed alike.
 
 ## 6 · DECIDE — apply the promote rule, then write the round down (the historian pass)
-**Promote rule (math, not judgment).** For each valid node, compare to the champion
-(from `champion/README` / `graph.md`): **promote** iff its CV beats the champion
-**beyond 2·sem** in the spec's direction AND it's leak-clean AND (if the lineage has
-a submitted LB) the CV gain is LB-consistent. On promote: byte-copy (cp, never
-symlink) `src/` + `submission.csv` → `champion/`, update `champion/README`. On
-reject: leave `champion/` untouched.
+**Promote rule (math, not judgment — the canonical gate lives in CLAUDE.md
+"Budget & deadline"; apply it, don't re-derive it).** For each valid node vs the
+champion (from `champion/README` / `graph.md`), in the spec's direction:
+- **Screen with fold-noise:** a leak-clean CV win **beyond 2·sem** (LB-consistent
+  if the lineage has a submitted LB) promotes directly.
+- **Arbitrate anything closer** with `tools/pred_diagnostic.py`: promote on paired
+  bootstrap **P(candidate > champion) ≥ 0.90**; a McNemar-significant fix-block
+  that also holds on the holdout makes it a keep/combine candidate even at flat
+  global CV.
+- **Mirage guardrail:** a gain on working-CV that does not hold on the holdout is
+  killed; any sub-2·sem promotion is submit-gated on an LB probe before it counts
+  as champion/finals material.
+On promote: byte-copy (cp, never symlink) `src/` + `submission.csv` → `champion/`,
+update `champion/README`. On reject: leave `champion/` untouched.
 
 **The four writes — ONE pass, ALL finished before the next round starts** (nothing
 important may exist only in chat):
