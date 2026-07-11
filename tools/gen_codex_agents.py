@@ -13,8 +13,16 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / ".claude" / "agents"
 DST = ROOT / ".codex" / "agents"
 
-# Claude frontmatter `effort` -> Codex model_reasoning_effort
-EFFORT_MAP = {"low": "low", "medium": "medium", "high": "high", "xhigh": "high", "max": "high"}
+# Claude frontmatter `model` -> Codex model tier (same capability class)
+MODEL_MAP = {
+    "fable": "gpt-5.6-sol",
+    "opus": "gpt-5.6-sol",
+    "sonnet": "gpt-5.6-terra",
+    "haiku": "gpt-5.6-luna",
+}
+# Claude frontmatter `effort` -> Codex model_reasoning_effort (both accept
+# low/medium/high/xhigh/max; Codex max is preview-gated per org)
+EFFORT_MAP = {"low": "low", "medium": "medium", "high": "high", "xhigh": "xhigh", "max": "max"}
 
 
 def parse_md(text: str) -> tuple[dict, str]:
@@ -43,6 +51,8 @@ def main() -> None:
             f'name = "{toml_escape_basic(fm["name"])}"',
             f'description = "{toml_escape_basic(fm["description"])}"',
         ]
+        if fm.get("model") in MODEL_MAP:
+            lines.append(f'model = "{MODEL_MAP[fm["model"]]}"')
         if fm.get("effort") in EFFORT_MAP:
             lines.append(f'model_reasoning_effort = "{EFFORT_MAP[fm["effort"]]}"')
         lines += ["", "developer_instructions = '''", body + "'''", ""]

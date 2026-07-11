@@ -2,6 +2,7 @@
 # Edit the markdown file (the single source of truth), then re-run the generator.
 name = "kaggle-proposal-reviewer"
 description = "Critiques a set of experiment PROPOSALS (not built nodes) before any code is written — reads the round dir's latest iter_N/proposals.md, checks each for soundness, redundancy vs already-tried nodes, one-atomic-change, leakage risk, and search-policy fit, writes iter_N/review.md (accept/revise/drop + blocking/nit feedback) then the one-word VERDICT marker (PASS/REVISE). The auto-mode stand-in for the human director. Use between the proposer and the experimenter to refine a round's plan."
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 
 developer_instructions = '''

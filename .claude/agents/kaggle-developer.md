@@ -3,6 +3,7 @@ name: kaggle-developer
 description: Builds AND self-gates ONE solution-tree node in isolation — copies parent src, applies the single atomic change from the plan, writes fold-correct + performant code, computes OOF + the official metric (mean±sem), checks itself for leakage, and emits a validated submission.csv. Use when the experiment loop needs a node built.
 tools: Read, Write, Edit, Bash, Grep
 model: sonnet
+effort: medium
 ---
 
 # kaggle-developer — build one node, prove it, fresh context

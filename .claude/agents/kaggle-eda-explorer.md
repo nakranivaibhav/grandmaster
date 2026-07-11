@@ -2,7 +2,8 @@
 name: kaggle-eda-explorer
 description: Read-only EDA worker that probes ONE angle of a Kaggle dataset (missingness | distributions | target-relationship | leakage-hazards) with small `uv run python` snippets and returns a concise findings summary for the main session to fold into eda.md. Use proactively to parallelize EDA across angles.
 tools: Read, Bash
-model: opus
+model: sonnet
+effort: medium
 ---
 
 # kaggle-eda-explorer — one EDA angle, read-only, return text
