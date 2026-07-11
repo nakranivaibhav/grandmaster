@@ -4,8 +4,8 @@
 
 This is the *why* behind the playbook. The standing contract is `CLAUDE.md`; the
 procedures are the skills in `.claude/skills/`; the workers are the subagents in
-`.claude/agents/`; the proposer↔critic refinement loop is
-`.claude/workflows/propose-loop.js`; the reusable code is in `tools/`. This file explains the research lineage we
+`.claude/agents/`; the proposer↔critic refinement loop runs through disk contracts
+in `comps/<slug>/rounds/`; the reusable code is in `tools/`. This file explains the research lineage we
 borrowed from, why we run it as markdown inside Claude Code, the graph/gate/
 validation/resume models, the mapping from our sibling neural-ring-detector loop,
 and the honest expectations.
@@ -90,11 +90,17 @@ runtime. Four Claude Code primitives map cleanly onto four roles:
 | **skill** (`.claude/skills/*/SKILL.md`) | a **procedure** the main session runs at a gate | `/kaggle-validate` freezes the CV |
 | **subagent** (`.claude/agents/*.md`) | an **isolated worker** with fresh context | `kaggle-developer` builds one node |
 | **CLAUDE.md** | the **standing rules** every actor obeys | leakage voids a score; one atomic change/node |
-| **workflow** (`.claude/workflows/propose-loop.js`) | a **deterministic agent loop** | `propose-loop` refines N proposals (proposer↔critic) |
+| **disk contract** (`comps/<slug>/rounds/round_NNNN/iter_N/`) | a **deterministic agent loop through files** | the propose↔critic refinement: proposer writes `proposals.md`, reviewer writes `review.md` + a one-word `VERDICT` marker; the orchestrator sequences spawns and reads only `VERDICT` |
 
-**The key constraint that shapes everything: neither subagents nor the workflow
-can pause for a human — only the main session can** (CLAUDE.md, "Operating mode").
-A subagent runs to completion and returns; the workflow loops without a console.
+The loop used to be a Claude-only `Workflow` script (`propose-loop.js`); moving it
+to disk contracts made it resumable mid-refinement, auditable after the fact, and
+portable to any agent runtime with subagents (e.g. Codex) — the orchestration is
+just "spawn, then stat a marker file", the same pattern as the long-training
+`DONE` markers.
+
+**The key constraint that shapes everything: subagents cannot pause for a human —
+only the main session can** (CLAUDE.md, "Operating mode").
+A subagent runs to completion and returns.
 So the architecture is **"gate the ends, auto the middle"**:
 
 - Every **gate** (`understand · toolkit · eda · validation · experiment_plan ·
@@ -102,8 +108,8 @@ So the architecture is **"gate the ends, auto the middle"**:
   render a Decision Card and *wait*.
 - The **experiment grind** — propose → register → build every proposal → gate →
   decide — has no inherent need for a human mid-step, so it is delegated to
-  subagents (and the `propose-loop` refinement workflow), sequenced by the main
-  session as orchestrator.
+  subagents (the propose↔critic pair exchanging through the round dir's disk
+  contract), sequenced by the main session as orchestrator.
 
 That is why `understand` and `submit` stay human except in `full_auto`: a wrong
 reading of the metric poisons every downstream CV, and a real submission is the
@@ -142,7 +148,8 @@ section — see there for the table.
 **Search policy (operator selection each round).** The full policy lives in its
 single home, `.claude/agents/kaggle-proposer.md` — that agent applies it to draft N
 proposals each round, the `kaggle-proposal-reviewer` critiques them (the
-`propose-loop` workflow runs that refinement), and the orchestrator builds **every**
+refinement runs through the `rounds/` disk contract, max 3 iterations,
+orchestrator-enforced), and the orchestrator builds **every**
 confirmed proposal; there is no best-first frontier-expansion controller that picks
 which to expand.
 

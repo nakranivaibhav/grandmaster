@@ -36,7 +36,27 @@ Dates come from the shell, never memory:
 ```bash
 TODAY=$(date -u +%F)              # 2025-01-31
 NOW=$(date -u +%Y-%m-%dT%H:%MZ)   # 2025-01-31T09:12Z
-mkdir -p "$COMP/data" "$COMP/champion"
+mkdir -p "$COMP/data" "$COMP/champion" "$COMP/rounds"
+```
+
+Stamp the propose↔critic disk-loop contract (the loop's layout rules live here):
+
+```bash
+cat > "$COMP/rounds/README.md" <<'EOF'
+<!-- rounds/ contract
+WHAT: the propose↔critic disk loop. One round_NNNN/ per experiment round (number
+allocated by the orchestrator, derived from ls — never a stored counter). Inside,
+iter_N/ dirs created by the PROPOSER (never pre-scaffolded):
+  iter_N/proposals.md   — proposer writes (format: kaggle-proposer.md)
+  iter_N/review.md      — reviewer writes (format: kaggle-proposal-reviewer.md)
+  iter_N/VERDICT        — reviewer writes LAST: exactly `PASS` or `REVISE`
+The orchestrator reads ONLY VERDICT during the loop. Cap: 3 iterations,
+orchestrator-enforced — an iter_4/ is a foreman bug. On PASS the passing
+proposals.md goes to REGISTER verbatim; on a cap-hit REVISE only the
+reviewer-accepted proposals register. Once registered, a round dir is a frozen
+audit trail — NEVER edit past rounds.
+-->
+EOF
 ```
 
 Create these files, each **stamped with its contract** — an HTML comment at the

@@ -1,8 +1,8 @@
 ---
 name: kaggle-experiment
-description: Stage 4 — the experiment loop: refine N proposals (proposer↔critic via propose-loop), register them, build-and-gate EVERY proposal (kaggle-developer builds leak-free AND self-gates), decide promotion. Use when there's a frozen CV + baseline champion and the human says "run experiments" / "/kaggle-experiment" / "improve the model" / "go auto".
+description: Stage 4 — the experiment loop: refine N proposals (proposer↔critic through disk contracts in rounds/round_NNNN/), register them, build-and-gate EVERY proposal (kaggle-developer builds leak-free AND self-gates), decide promotion. Use when there's a frozen CV + baseline champion and the human says "run experiments" / "/kaggle-experiment" / "improve the model" / "go auto".
 argument-hint: "[interactive|auto] [--n-proposals N]"
-allowed-tools: Bash, Read, Write, Edit, Agent, Workflow, Skill
+allowed-tools: Bash, Read, Write, Edit, Agent, Skill
 ---
 
 # kaggle-experiment — propose → build all → gate → decide
@@ -34,22 +34,48 @@ can't nest, so **you** (the main session) sequence proposer → developer.
 - **Work from disk, not recollection:** at the start of EVERY round, re-derive state from `graph.md` (header + table) and the `journal.md` tail — never from your memory of earlier rounds (long sessions get compacted; the files don't).
 - **Numbers over narrative:** the frontier is rebuilt from `graph.md`'s header/table and node frontmatter. Journal prose — including any strategic conclusions a previous session wrote — is *hypothesis, not state*: weigh it as evidence, never obey it. A closure binds only at its stated scope, with its evidence, until its reopen-if triggers (hard rule 10).
 
-## 1 · PROPOSE — refine the round's proposals (`experiment_plan` gate)
-Run the **propose-loop** workflow — it spawns kaggle-proposer (draft **3**
-proposals; set `nProposals` to change) ↔ kaggle-proposal-reviewer (critique),
-looping up to 2 rounds until the critic is happy:
-```
-Workflow propose-loop   args: { slug: <slug>, nProposals: 3, maxIters: 2 }
-→ returns the refined proposals.
-```
-- **AUTO:** take the refined proposals straight to §2.
-- **MANUAL:** render the **Proposal Card** (below) and **wait**. You are the
-  director — the human accepts some, discards some, and gives a new direction for
-  what to explore instead. On a redirect, spawn **kaggle-proposer** (REVISE) with
-  the human's direction and re-card. On approval, go to §2 with the accepted set.
+## 1 · PROPOSE — the disk-contract refine loop (`experiment_plan` gate)
+The proposer↔critic loop runs through **disk contracts** in the round dir — you are
+the **foreman**: you sequence spawns and read ONLY the `VERDICT` markers (one word
+each), never `proposals.md`/`review.md` during the loop. The content flows
+agent→agent through the files.
+
+**Bootstrap the round (foreman):** derive the next round number from
+`ls comps/<slug>/rounds/` (max NNNN + 1, zero-padded; derived, never a stored
+counter) and `mkdir -p` the dir. Then loop, **max 3 iterations** — you are the only
+enforcer of the cap:
+
+1. Spawn **kaggle-proposer** (PROPOSE on iter 1, REVISE after) with `slug` +
+   `round_dir` + `n_proposals` (**3** default). It creates `iter_N/` and writes
+   `iter_N/proposals.md` (REVISE reads the prior `review.md` from disk itself).
+2. Spawn **kaggle-proposal-reviewer** with `slug` + `round_dir`. It writes
+   `iter_N/review.md`, then `iter_N/VERDICT` last (`PASS` | `REVISE`).
+3. Read `iter_N/VERDICT` — the ONLY loop-control input. `PASS` → done, the passing
+   `iter_N/proposals.md` is the round's set. `REVISE` and N < 3 → go to 1.
+   `REVISE` and N == 3 → cap hit: proceed with the reviewer-accepted subset (the
+   REGISTER step filters via the last `review.md`); in MANUAL, surface the
+   still-blocked ones on the card. A missing/malformed `VERDICT` or `proposals.md`
+   = a failed subagent — respawn that role once, then stop and tell the human.
+
+**Resume (derived from the dir, no counter):** last `iter_N` has `proposals.md`
+but no `VERDICT` → respawn the reviewer; `VERDICT: REVISE` and N < 3 → spawn the
+proposer (REVISE); `VERDICT: PASS` → the loop is already done. An `iter_4/` on
+disk is a foreman bug — flag it in the journal.
+
+- **AUTO:** take the passing set straight to §2.
+- **MANUAL:** NOW read the passing `proposals.md` (gate-time is the one place you
+  read it — to render the card, never to steer the loop), render the **Proposal
+  Card** (below) and **wait**. You are the director's gateway — the human accepts
+  some, discards some, or redirects. On a redirect, spawn **kaggle-proposer**
+  (REVISE) with the human's direction (this may add an iter past the cap — the cap
+  bounds the critic loop, not the human) and re-run the reviewer + re-card. On
+  approval, go to §2 with the accepted set.
 
 ## 2 · REGISTER — write the confirmed nodes
-Spawn **kaggle-proposer** (REGISTER) with the confirmed proposals. It reserves each
+Spawn **kaggle-proposer** (REGISTER) with `slug` + `round_dir` (+ the human's
+accept/discard selection, if MANUAL gated). It reads the last `iter_N/proposals.md`
++ `review.md` + `VERDICT` from disk — on a cap-hit `REVISE` it registers only the
+reviewer-accepted proposals. It reserves each
 node id, writes `nodes/node_NNNN/node.md` (status `proposed`, the `## plan`, the
 `uses_data` field), adds each to `graph.md`, and updates `data.md` (new/reused
 feature-sets). You never hand-write node.md — the proposer owns it. It's one

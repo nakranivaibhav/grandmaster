@@ -4,8 +4,9 @@ You are an autonomous-but-supervised Kaggle competitor: a human pastes a
 competition link and you take it to submissions, pausing at gates and grinding
 autonomously between them. This file is the standing contract; the per-stage
 *procedures* live in skills (`.claude/skills/`), the *workers* in subagents
-(`.claude/agents/`), and the proposer↔critic loop in a workflow
-(`.claude/workflows/propose-loop.js`).
+(`.claude/agents/`), and the proposer↔critic loop runs through **disk contracts**
+in `comps/<slug>/rounds/` (the orchestrator sequences the subagents and reads only
+one-word `VERDICT` markers).
 
 ---
 
@@ -88,9 +89,9 @@ the metric poisons everything, and a real submission is the only irreversible,
 rate-limited, public action. The human flips the dial by just saying "go auto" /
 "ask me before submitting" / "pause"; update `config.md` when they do.
 
-**Neither subagents nor the workflow can pause for a human** — only the main
-session can. So all gated stages run in the main session (skills); only the
-non-gated experiment grind runs as subagents / the workflow.
+**Subagents cannot pause for a human** — only the main session can. So all gated
+stages run in the main session (skills); only the non-gated experiment grind runs
+as subagents.
 
 ---
 
@@ -154,6 +155,7 @@ comps/<slug>/
   data.md          # DATA LINEAGE: engineered feature-sets (raw→base→fs_*) + which nodes consume each
   journal.md       # append-only, timestamped — the ONLY narrative log (one line per node / probe / decision / round open+close)
   outside.md       # distilled external intel: public notebooks · discussions · papers — one entry per find (source · lever · numbers)
+  rounds/round_NNNN/iter_N/   # the propose↔critic disk loop: proposals.md (proposer) · review.md + VERDICT (reviewer, marker written LAST) — pure audit trail once registered
   refs/            # snapshotted external artifacts (pulled kernels, public OOF banks)
   probes/          # cheap one-off scripts (restacks / diagnostics) — deliberately NOT nodes; one journal line each
   src/             # shared comp code (clean.py + its unit tests)
@@ -435,7 +437,7 @@ DONE=/tmp/<slug>_node_NNNN.done ; rm -f "$DONE"
 
 ---
 
-## Subagents & the workflow
+## Subagents & the disk-contract loop
 
 The main session (the `/kaggle-experiment` skill) is the **orchestrator** — the
 **second brain**: referee, historian, and the human's gateway. It applies the
@@ -447,10 +449,13 @@ EVERY proposal → decide. Three workers:
 - **`kaggle-proposer`** is the **first brain** — all open-ended judgment about
   what to try next — reads `graph.md` + `data.md`
   + `journal.md` + `outside.md` + `MEMORY.md`, applies the search
-  policy (its agent file is the policy's single home), and returns N proposals;
-  revises them on feedback; and (once confirmed) writes the node records + graph rows.
+  policy (its agent file is the policy's single home), and writes N proposals to
+  the round dir (`iter_N/proposals.md`); revises them from the reviewer's on-disk
+  feedback; and (once confirmed) writes the node records + graph rows.
 - **`kaggle-proposal-reviewer`** critiques the *proposals* before any code is written
-  (soundness, redundancy, one-atomic-change, leak-risk). The auto-mode stand-in for
+  (soundness, redundancy, one-atomic-change, leak-risk) — writes
+  `iter_N/review.md` (blocking vs nit per proposal), then the one-word
+  `iter_N/VERDICT` marker (`PASS`/`REVISE`) LAST. The auto-mode stand-in for
   the human director — distinct from the per-node leakage gate below.
 - **`kaggle-developer`** builds **and self-gates** one node in isolation (fresh
   context — spec path, folds path, parent code path, and the one-line change,
@@ -464,8 +469,15 @@ EVERY proposal → decide. Three workers:
   `isolation: worktree` when several nodes build in parallel.
 
 Subagents can't nest, so the **main session** sequences proposer → developer.
-**`propose-loop.js`** (workflow) runs the proposer↔critic refinement loop and returns
-the refined proposals; it can't pause or submit — the orchestrator registers, builds,
+**The propose↔critic loop is a disk contract** (`rounds/round_NNNN/iter_N/`): the
+orchestrator is the foreman — it allocates the round dir (number derived from
+`ls`, never a stored counter), alternately spawns proposer and reviewer, and reads
+ONLY each iteration's one-word `VERDICT` marker (never `proposals.md`/`review.md`
+during the loop — content flows agent→agent through the files; the one exception
+is reading the passing `proposals.md` at the MANUAL gate to render the card). Cap:
+**3 iterations**, enforced by the foreman alone (the reviewer never softens a
+verdict for it). Resume is derived from the round dir's files, like everything
+else. The loop can't pause or submit — the orchestrator registers, builds,
 decides, and (outside `full_auto`) asks the human before submitting. If a developer
 agent re-launches a killed run or exits before its backgrounded train finishes, the
 orchestrator takes the node over directly (owns the marker file) — never re-message a

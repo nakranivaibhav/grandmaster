@@ -1,6 +1,6 @@
 ---
 name: kaggle-eda
-description: Stage 1 — interactive EDA + cleaning: probe the data, write findings to eda.md, turn each cleaning decision into reusable code + a unit test (optionally fan out kaggle-eda-explorer for parallel angles). Use when `eda` is the next unticked stage, or the human says "do EDA" / "look at the data" / "clean the data".
+description: Stage 1 — interactive EDA + cleaning: probe the data, write findings to eda.md, turn each cleaning decision into reusable code + a unit test (optionally fan out kaggle-eda-explorer for parallel angles), and build + RUN a guided EDA notebook (plain-language feature glossary + all starter plots) for the human to review. Use when `eda` is the next unticked stage, or the human says "do EDA" / "look at the data" / "clean the data".
 argument-hint: <slug>   (the comp folder under comps/, e.g. titanic)
 allowed-tools: Bash, Read, Write, Edit
 ---
@@ -129,14 +129,64 @@ tick). If a step can't be made to pass fit-inside-fold, it's a feature for the
 modelling node's fold loop, not a global clean — note that in eda.md and don't
 apply it globally.
 
-## 5. Gate: the EDA Decision Card
+## 5. Build + RUN the guided EDA notebook (mandatory — the human's review surface)
+`eda.md` is the machine-readable findings; the **notebook is the human's window
+into the data**. Always produce `$C/eda_notebook.ipynb` — a plain-language guided
+tour that (a) **introduces every column/feature in simple words** (a glossary a
+non-specialist can follow — what each field physically means, its units, and
+whether it's a usable feature or train-only/target), and (b) renders **all the
+starter plots** a reviewer needs to build intuition before modelling. Then
+**execute it end-to-end** so every plot is embedded — a notebook that isn't run is
+not done.
+
+Cover, adapted to the comp (skip what's N/A, add what the data needs):
+- **Title + the task in one plain paragraph** — what we predict and why, in
+  everyday language (an analogy helps).
+- **Feature glossary** — a markdown table: every column → plain meaning + units +
+  role (feature / target / train-only-do-not-use / id).
+- **The target** — distribution; for this comp, the known-vs-predict split per unit.
+- **The core signal** — plot the feature(s) that carry the signal against the
+  target/axis (e.g. the GR-vs-depth match), including any missingness and how
+  cleaning bridges it.
+- **Dataset-wide distributions** — target range, smoothness, missingness, unit
+  sizes, group counts — a small grid of histograms.
+- **The baseline picture** — visualize the dumb baseline vs truth so the floor is
+  intuitive.
+- **Takeaways** — a short bullet list: usable features, what NOT to use, the metric,
+  the CV scheme, the number to beat.
+
+Build it programmatically (nbformat) then run it, so it's reproducible and never
+hand-edited:
+```bash
+uv add --dev ipykernel nbconvert      # once, if missing
+# build $C/eda_notebook.ipynb via an nbformat builder script (markdown + code cells)
+uv run jupyter nbconvert --to notebook --execute --inplace \
+  --ExecutePreprocessor.timeout=300 "$C/eda_notebook.ipynb"
+```
+Then **verify it ran clean** — 0 error outputs, plots embedded — before the gate:
+```bash
+uv run python - <<'PY'
+import nbformat; nb=nbformat.read("$C/eda_notebook.ipynb", as_version=4)
+errs=sum(o.get("output_type")=="error" for c in nb.cells if c.cell_type=="code" for o in c.get("outputs",[]))
+imgs=sum("image/png" in o.get("data",{}) for c in nb.cells if c.cell_type=="code" for o in c.get("outputs",[]) if o.get("output_type")=="display_data")
+print("errors=",errs,"plots=",imgs); assert errs==0, "notebook has cell errors — fix before the gate"
+PY
+```
+The notebook reads from the comp's own `src/clean.py` helpers (import them) so it
+stays in sync with the tested cleaning code — never re-implement cleaning inline.
+Point the human to `$C/eda_notebook.ipynb` in the gate card so they can open it at
+full resolution.
+
+## 6. Gate: the EDA Decision Card
 Render the card in the CLAUDE.md Decision Card format, then obey the autonomy dial
 in `$C/config.md` (`interactive` waits here; `auto_except_submit`/`full_auto`
 proceed). Stage-specific content:
 - **stage:** eda
 - **What's going on:** Looked at the data and wrote down what needs cleaning.
 - **Found / propose:** <3–4 plain bullets: target balance, top missing cols, the
-  one leakage hazard that sets the CV scheme, # cleaning steps coded+tested>
+  one leakage hazard that sets the CV scheme, # cleaning steps coded+tested> ·
+  **the guided EDA notebook (`$C/eda_notebook.ipynb`) is built + run (N plots, 0
+  errors) — point the human to open it for the full feature tour**
 - **Why:** Clean, leak-free inputs before we freeze the CV split.
 - **Cost:** <minutes> · CPU only · 0 submissions
 
@@ -152,7 +202,8 @@ fold scheme via `tools/make_folds.py`.
 - **No model fitting here** — EDA describes; the modelling node fits. The only
   "fits" allowed are inside a `fit/transform` helper that the node calls
   fold-locally.
-- **Snippets print, scripts persist.** Probes are throwaway one-liners; the only
-  files you create are `eda.md`, `src/clean.py`, `src/test_clean.py`.
+- **Snippets print, scripts persist.** Probes are throwaway one-liners; the files
+  you create are `eda.md`, `src/clean.py`, `src/test_clean.py`, and
+  `eda_notebook.ipynb` (built + executed, plots embedded).
 - **uv for everything; dates from `date -u`.** No bare `python`, no typed dates.
 - **Surface leakage, don't silently fix it** — the verdict drives the next gate.

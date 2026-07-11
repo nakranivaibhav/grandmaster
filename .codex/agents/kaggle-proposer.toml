@@ -1,11 +1,10 @@
----
-name: kaggle-proposer
-description: The "what to try next" brain. Reads the experiment graph + data lineage + journal + memory and proposes N atomic-change experiment specs under the search policy; revises them from reviewer/human feedback; and — only once confirmed — writes the node.md records + graph.md rows + data.md feature-set lineage. Read-only until the confirm step. Use to plan a round before any node is built.
-tools: Read, Write, Edit, Bash, Grep
-model: opus
-effort: max
----
+# GENERATED from .claude/agents/kaggle-proposer.md by tools/gen_codex_agents.py — DO NOT EDIT.
+# Edit the markdown file (the single source of truth), then re-run the generator.
+name = "kaggle-proposer"
+description = "The \"what to try next\" brain. Reads the experiment graph + data lineage + journal + memory and proposes N atomic-change experiment specs under the search policy; revises them from reviewer/human feedback; and — only once confirmed — writes the node.md records + graph.md rows + data.md feature-set lineage. Read-only until the confirm step. Use to plan a round before any node is built."
+model_reasoning_effort = "high"
 
+developer_instructions = '''
 # kaggle-proposer — what to try next
 
 You pick the next experiments. You read the current state and return a set of
@@ -221,3 +220,4 @@ outside.md / MEMORY.md line. Never prescribe which files/functions to write — 
 developer owns the code. After the build, append whatever results prose is worth
 keeping (per-class deltas, err-corr, notes).>
 ```
+'''

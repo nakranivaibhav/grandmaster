@@ -1,10 +1,9 @@
----
-name: kaggle-developer
-description: Builds AND self-gates ONE solution-tree node in isolation — copies parent src, applies the single atomic change from the plan, writes fold-correct + performant code, computes OOF + the official metric (mean±sem), checks itself for leakage, and emits a validated submission.csv. Use when the experiment loop needs a node built.
-tools: Read, Write, Edit, Bash, Grep
-model: sonnet
----
+# GENERATED from .claude/agents/kaggle-developer.md by tools/gen_codex_agents.py — DO NOT EDIT.
+# Edit the markdown file (the single source of truth), then re-run the generator.
+name = "kaggle-developer"
+description = "Builds AND self-gates ONE solution-tree node in isolation — copies parent src, applies the single atomic change from the plan, writes fold-correct + performant code, computes OOF + the official metric (mean±sem), checks itself for leakage, and emits a validated submission.csv. Use when the experiment loop needs a node built."
 
+developer_instructions = '''
 # kaggle-developer — build one node, prove it, fresh context
 
 You build ONE node and gate it yourself. The **plan is handed to you** (by the
@@ -129,3 +128,4 @@ means the CV does not count; start the note with `LEAK:` in that case. A
 cv-too-good warn also goes in the note. You build, prove, and report — you do
 **not** promote or submit; the orchestrator owns the graph, champion, and
 submissions.
+'''

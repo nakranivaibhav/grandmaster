@@ -121,8 +121,8 @@ grandmaster/
       kaggle-proposal-reviewer.md #   critiques the proposals before any code is written
       kaggle-developer.md         #   builds AND self-gates one node in isolation (fast leak self-checks, voids on leak)
       kaggle-eda-explorer.md      #   fans out EDA probes
-    workflows/
-      propose-loop.js             # proposer↔critic refinement loop → refined proposals
+                                  # (the proposer↔critic refinement loop runs through disk
+                                  #  contracts in comps/<slug>/rounds/ — no workflow script)
   comps/                          # one folder per competition (data gitignored)
     <slug>/ …                     # see below
 ```
@@ -142,6 +142,7 @@ comps/<slug>/
   graph.md         # THE MAP: a Mermaid DAG of all nodes + a description table linking to each node.md
   data.md          # DATA LINEAGE: engineered feature-sets (raw→base→fs_*) + which nodes consume each
   journal.md       # append-only, one timestamped line per node
+  rounds/          # the propose↔critic disk loop: round_NNNN/iter_N/{proposals.md, review.md, VERDICT}
   submissions.md   # append-only, UTC-timestamped ledger — the source of truth for budget
   champion/        # the best valid node's src/ + submission.csv + README (byte-copied, never symlinked)
   nodes/node_NNNN/ # node.md (THE node record: plan + metrics + gate booleans), src/, train.log,
