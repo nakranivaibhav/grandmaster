@@ -23,10 +23,11 @@ every later node only changes the prediction, never the plumbing.
    column name(s).
 2. `Read comps/<slug>/validation.md` and confirm `comps/<slug>/folds.json` exists.
    If folds.json is missing, STOP — go run `/kaggle-validate` first.
-3. `Read comps/<slug>/progress.md`; confirm `validation` is ticked and `baseline`
-   is not. Confirm `comps/<slug>/data/{train.csv,test.csv,sample_submission.csv}`
-   exist (whatever the comp's filenames are — use the ones in spec.md).
-4. `Read comps/<slug>/config.md` for the autonomy mode (gates the submit step).
+3. `uv run tools/render_state.py comps/<slug>` then read `state.md`; confirm
+   `validation` is ticked and `baseline` is not. Confirm
+   `comps/<slug>/data/{train.csv,test.csv,sample_submission.csv}` exist (whatever
+   the comp's filenames are — use the ones in spec.md).
+4. `Read comps/<slug>/control.md` for the autonomy mode (gates the submit step).
 5. If `comps/<slug>/champion/` already has a `submission.csv`, a champion exists —
    this skill is for the FIRST one only. Stop and report.
 
@@ -47,8 +48,9 @@ Then a short free-form plan body stating: the constant rule (which constant + wh
 hypothesis ("establishes the schema-correct data→CV→submit pipe and a floor CV
 every later node must beat"), and the official metric + direction from spec.md.
 
-Append one line to `comps/$slug/journal.md`:
-`$NOW node_0000 draft(root) baseline — predict <mean|median|base-rate> · status=running`.
+Append the REGISTER + LAUNCH events to `comps/$slug/journal.md` (this is the one
+node written outside the proposer, so you append its lines yourself):
+`$NOW  REGISTER node_0000 op=draft parents=[root] family=baseline well=exploit uses_data=[] round=null — constant <mean|median|base-rate> baseline`.
 
 ## Step 2 — write the baseline solution (`$node/src/solution.py`)
 The script is **self-contained** and does TWO jobs in one run: (a) compute CV
@@ -146,12 +148,13 @@ self-checks + schema clean — the CV counts).
 
 ## Step 6 — put node_0000 on the map and make it champion
 This is the first valid node, so it is the champion by definition (best valid CV).
-1. Update `comps/$slug/graph.md` (scaffolded empty at bootstrap — obey its top
-   contract): set the header line to `metric: <metric> (<direction>) · champion:
-   node_0000 (cv <cv> · lb —) · updated $(date -u +%F)`; add the Mermaid edge
-   `root --> node_0000[node_0000 · baseline · <cv>]:::champ` plus the
-   `classDef champ fill:#cfc,stroke:#070;` line; and add the table row
-   `| node_0000 | baseline · constant <mean\|median\|base-rate> | <cv> | — | champion | `nodes/node_0000/node.md` |`.
+1. Append the SCORE + PROMOTE events, then re-render:
+```bash
+NOW=$(date -u +%Y-%m-%dT%H:%MZ)
+printf '%s  SCORE node_0000 status=valid cv=<cv> sem=<sem> folds=[<f1>,...] — schema + self-checks clean\n' "$NOW" >> comps/$slug/journal.md
+printf '%s  PROMOTE node_0000 over=none pboot=null — first champion, proves the pipe\n' "$NOW" >> comps/$slug/journal.md
+uv run tools/render_state.py comps/$slug
+```
 2. Byte-copy into `champion/` (cp, never symlink — CLAUDE.md semantics):
 ```bash
 mkdir -p comps/$slug/champion
@@ -160,9 +163,8 @@ cp $node/submission.csv comps/$slug/champion/submission.csv
 ```
 3. Write `comps/$slug/champion/README.md`: node_0000, the constant used, `cv=…`,
    metric+direction, and "first champion — dumb baseline, proves the pipe."
-4. In `$node/node.md` frontmatter set `status: champion`. Append a `journal.md`
-   line: `<NOW> node_0000 → champion cv=<…> (<metric> <direction>)` — the journal
-   line is the decide record.
+4. In `$node/node.md` frontmatter set `status: champion` (artifact-then-mark:
+   the journal lines above are the decide record).
 
 ## Step 7 — SUBMIT GATE (spends 1 of the daily limit)
 A real submission is irreversible + rate-limited → it is a **hard human gate**
@@ -171,7 +173,7 @@ limit comes from spec.md's `daily_submission_limit` (asked from the human at
 kaggle-start), never a literal:
 ```bash
 lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/$slug/spec.md)
-uv run tools/kaggle_io.py budget --ledger comps/$slug/submissions.md --limit "$lim"
+uv run tools/kaggle_io.py budget --ledger comps/$slug/journal.md --limit "$lim"
 ```
 Render the card in the CLAUDE.md Decision Card format, with this
 stage-specific content:
@@ -183,9 +185,10 @@ stage-specific content:
   - this is a dry run of the whole pipe — not a real model yet
 - **Why:** proves data→CV→submit→Kaggle works before we spend effort modelling.
 - **Cost:** ~0 compute · spends submission <used+1>/<lim> today (resets 00:00 UTC)
-- `interactive` / `auto_except_submit`: **wait** for approval (the submit gate is
-  human in both). On "skip", leave node_0000 as champion, do NOT submit, mark
-  progress and stop.
+- `interactive` / `auto_except_submit`: touch `comps/$slug/.waiting-on-human`
+  and **wait** for approval (the submit gate is human in both; remove the
+  sentinel on the answer). On "skip", leave node_0000 as champion, do NOT
+  submit, append `STAGE baseline done` and stop.
 - `full_auto`: proceed without waiting.
 
 On approval (and only if `remaining > 0`), hand off to the submit skill so the
@@ -193,26 +196,23 @@ ledger/poll logic lives in one place:
 ```
 /kaggle-submit <slug> --node node_0000 --message "node_0000 baseline cv=<cv> (<metric>)"
 ```
-The kaggle-submit skill appends the UTC row to `submissions.md`, polls for the
-public score, and logs the CV↔LB gap (surfaced, never auto-acted). When it
-returns, set `lb: <public score>` in node.md (the ledger row is the submission
-record), and update the `lb` cell of the `graph.md` `## nodes` row; note the
-public score + gap in `journal.md`. (If a 403 comes back, that's
-rules-not-accepted / unverified, NOT bad creds — surface the human gate, don't
-retry around it.)
+The kaggle-submit skill appends the `SUBMIT` journal line, polls for the public
+score (backfilling an `LB` line), and logs the CV↔LB gap (surfaced, never
+auto-acted). When it returns, set `lb: <public score>` in node.md. (If a 403
+comes back, that's rules-not-accepted / unverified, NOT bad creds — surface the
+human gate, don't retry around it.)
 
 ## Step 8 — close the stage
-Tick `baseline` in `comps/$slug/progress.md` and regenerate its derived header
-(`today (UTC)=$(date -u +%F)`, `submissions=<used>/<lim>` where `lim` is spec.md's
-`daily_submission_limit`, `deadline … days_left`).
+Append `$(date -u +%Y-%m-%dT%H:%MZ)  STAGE baseline done` to the journal and
+re-render `state.md`.
 Final readout to the human: champion = node_0000, local CV, public score (if
 submitted) and the CV↔LB gap, and that the pipe is proven end-to-end — next is
 `/kaggle-experiment` (real models).
 
 ## Guardrails
-- Artifact-then-mark: a frontmatter field is written only after the artifact it
-  describes exists (`cv` after the log · `status: valid` after the checks · `lb`
-  after the ledger row).
+- Artifact-then-mark: a frontmatter field or journal event is written only after
+  the artifact it describes exists (`cv` after the log · `SCORE status=valid`
+  after the checks · `lb` after the SUBMIT line).
 - A server-rejected submission does NOT burn the daily quota — safe to fix and
   resubmit; only an *accepted* submit counts.
 - Do not add features, models, or tuning here — that is `/kaggle-experiment`.

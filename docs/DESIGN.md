@@ -117,6 +117,40 @@ one irreversible, rate-limited, public action. The orchestrator reflects this �
 `auto_except_submit` it asks the human before spending a slot; in `full_auto` it
 submits within budget.
 
+### 2.5 · Event-sourced state + the Stop-hook driver (2026-07 refactor)
+
+Two structural problems showed up in the first live comp (rogii, Jul 2026),
+diagnosed from the session logs:
+
+1. **Multi-file state drifted.** One node event needed coordinated edits in ~5
+   places (node.md frontmatter, graph.md's Mermaid + table + header, data.md's
+   consumed-by, progress.md's header) and the rules spent paragraphs policing
+   agreement. Fix: **event-sourcing.** `journal.md` became the single written
+   source of truth — one appended, structured line per event (grammar:
+   `tools/render_state.py` docstring) — and everything readable is a *printout*:
+   `tools/render_state.py` replays the journal into a generated `state.md`
+   (header, checklists, Mermaid, node table, lineage, ledger). Append-only truth
+   cannot drift; "exactly one champion" went from an invariant to police to an
+   arithmetic consequence of replay. `control.md` (dial + halt) is the one file
+   the human writes. graph/progress/data/submissions/outside .md files are
+   retired.
+
+2. **The human was the scheduler.** Sessions idled for 10+ hours waiting for a
+   "?" — nothing woke the agent when a training finished or a round closed, and
+   developer agents that waited on multi-hour runs died and orphaned them
+   ("zombie" nodes). Fix, three parts: (a) `tools/autopilot_gate.py` registered
+   as a **Stop lifecycle hook in both harnesses** (Claude Code and Codex ≥0.1xx
+   share the hook schema) — at every turn-end it replays the journal and either
+   blocks the stop with the next concrete step or lets the session idle
+   legitimately (interactive dial, halt flag, `.waiting-on-human` sentinel,
+   runs still in flight, or a 3-strike no-progress breaker); (b) **wake on run
+   completion** — Claude Code launches watchdogged runs via harness-tracked
+   background Bash (re-invokes on exit), Codex adds `--on-done` to the watchdog
+   to nudge the idle session; (c) **sessions never wait on long runs** — the
+   developer stops at `ready_to_run` + `run.sh`, the orchestrator launches
+   detached and spawns a GATE job on the completion wake, eliminating the
+   zombie class by construction.
+
 ---
 
 ## 3 · The graph model

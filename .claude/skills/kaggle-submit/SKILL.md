@@ -1,6 +1,6 @@
 ---
 name: kaggle-submit
-description: Budget-gated Kaggle submission with async public-score poll — computes today's budget from the UTC ledger against spec.md's daily_submission_limit, blocks past the limit, renders the SUBMIT card, submits, polls the score, then logs it to submissions.md + graph.md with the CV↔LB gap. Use when a valid node's CV beats the last-submitted CV by more than fold-noise (2·sem), or a stage reaches the `submit` gate.
+description: Budget-gated Kaggle submission with async public-score poll — computes today's budget from the journal's SUBMIT lines against spec.md's daily_submission_limit, blocks past the limit, renders the SUBMIT card, submits, polls the score, then appends the SUBMIT/LB journal lines with the CV↔LB gap. Use when a valid node's CV beats the last-submitted CV by more than fold-noise (2·sem), or a stage reaches the `submit` gate.
 argument-hint: <slug> <node_id>   e.g. titanic node_0007
 allowed-tools: Bash, Read, Write, Edit
 ---
@@ -20,9 +20,9 @@ current champion (`comps/<slug>/champion/`). All paths below are repo-relative.
 
 ## 0 · Preconditions (read, don't retry around the human gates)
 
-- `comps/<slug>/nodes/<node_id>/submission.csv` exists, and its `node.md`
-  frontmatter shows `status: valid` (or `champion`) and a non-null `cv` (i.e. it
-  was built, scored, and self-checked clean). A node that hasn't cleared the
+- `comps/<slug>/nodes/<node_id>/submission.csv` exists, and its journal `SCORE`
+  line (cross-check `node.md`) shows `status: valid` (or a `PROMOTE` made it
+  champion) and a non-null `cv` (i.e. it was built, scored, and self-checked clean). A node that hasn't cleared the
   leakage self-checks **cannot** be submitted — leakage voids the score (Hard
   rule 3). If `status` is anything else, or `cv` is null, stop and say so.
 - `KAGGLE_USERNAME` / `KAGGLE_KEY` are in the env (the tool fails with a clear
@@ -48,20 +48,20 @@ Non-zero exit ⇒ the CSV is malformed; fix the node, do **not** submit.
 ```bash
 lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/$slug/spec.md)
 [ -n "$lim" ] || { echo "spec.md lacks daily_submission_limit — kaggle-start must ask the human; stop"; }
-uv run tools/kaggle_io.py budget --ledger comps/$slug/submissions.md --limit "$lim"
+uv run tools/kaggle_io.py budget --ledger comps/$slug/journal.md --limit "$lim"
 # prints:  <YYYY-MM-DD>  <used>/<lim> used  (<remaining> remaining, resets 00:00 UTC)
 ```
 - `remaining == 0` ⇒ **the daily limit is spent — block**. Print when the next
   slot frees (`00:00 UTC`) and stop. Do not call submit.
-- The count is recomputed from the ledger every time, so it can't drift across a
-  resume. Never store or trust a mutable counter.
+- The count is recomputed from the journal's `SUBMIT` lines every time, so it
+  can't drift across a resume. Never store or trust a mutable counter.
 
 ---
 
 ## 2 · CV gate — only submit a node that beats the last submitted CV
 
-The last submitted CV is the `cv` column of the **last row** of
-`comps/$slug/submissions.md` (empty ledger ⇒ this is the first/baseline submit,
+The last submitted CV is the `cv=` field of the **last `SUBMIT` line** in
+`comps/$slug/journal.md` (no SUBMIT lines ⇒ this is the first/baseline submit,
 which always passes). **Fold-noise = 2·sem** of the candidate's CV (the `sem:`
 field in its `node.md`) — the one canonical definition, same bar as the promote
 gate (CLAUDE.md "Budget & deadline").
@@ -85,7 +85,8 @@ in the card rather than auto-submitting, regardless of autonomy mode.
 ## 3 · SUBMIT Decision Card (gated except `full_auto`)
 
 The `submit` gate is human in `interactive` and `auto_except_submit`; only
-`full_auto` proceeds without waiting (read the mode from `comps/$slug/config.md`).
+`full_auto` proceeds without waiting (read the mode from `comps/$slug/control.md`).
+While waiting, `touch comps/$slug/.waiting-on-human` (remove it on the answer).
 This costs **1 of the daily limit**.
 
 ```
@@ -124,8 +125,8 @@ uv run tools/kaggle_io.py submit $slug --file $ndir/submission.csv --message "$m
   ```
   `rules_not_accepted` (403) ⇒ surface the human browser/verify gate, stop.
   `rate_limited` (429) ⇒ already backed off by the tool; if still failing, wait
-  and retry once. `auth` ⇒ env vars; stop. Only append a ledger row **after** an
-  accepted submit (exit 0) — never on a rejected one.
+  and retry once. `auth` ⇒ env vars; stop. Only append the `SUBMIT` journal line
+  **after** an accepted submit (exit 0) — never on a rejected one.
 
 ---
 
@@ -153,44 +154,36 @@ the row will be backfilled on the next poll — don't block the loop.
 
 ---
 
-## 6 · Append the ledger row — EXACT format the budget reader counts
+## 6 · Append the SUBMIT journal line — EXACT format the budget reader counts
 
-The `budget` subcommand counts a row iff it `startswith("| <today-UTC>")`.
-Append **after** an accepted submit, with the timestamp from the shell. The 5th
-column is a free-text `note` (empty for a normal submit; `PROBE` for a
-human-directed LB probe; never jam notes into the `lb` cell):
+The `budget` subcommand counts a line iff it starts with today's UTC date
+followed by ` SUBMIT `. Append **after** an accepted submit, with the timestamp
+from the shell; prose after the em dash is the free-text note (`PROBE` there for
+a human-directed LB probe):
 ```bash
 ts=$(date -u +%FT%RZ)                 # e.g. 2026-06-05T14:07Z  (UTC, minute precision)
-printf '| %s | %s | %s | %s | %s |\n' "$ts" "$node" "$cv" "$lb" "$note" >> comps/$slug/submissions.md
+printf '%s  SUBMIT %s cv=%s lb=%s — %s\n' "$ts" "$node" "$cv" "${lb:-pending}" "$note" >> comps/$slug/journal.md
 ```
-This produces exactly: `| <date -u +%FT%RZ> | node_NNNN | <cv> | <lb> | <note> |`.
-If the ledger has no header yet, write it once first (header rows don't start
-with `| <date>` so they're never miscounted):
-```
-| ts (UTC)            | node      | cv     | lb      | note |
-|---------------------|-----------|--------|---------|------|
+When the async poll later lands a score that was `pending`, append the backfill
+line (never edit the SUBMIT line):
+```bash
+printf '%s  LB %s lb=%s — async score landed\n' "$(date -u +%FT%RZ)" "$node" "$lb" >> comps/$slug/journal.md
 ```
 
 ---
 
-## 7 · Advance the stage, log the gap (artifact-then-mark, never auto-demote)
+## 7 · Re-render, log the gap (artifact-then-mark, never auto-demote)
 
-1. In `comps/$slug/nodes/$node/node.md` frontmatter, **only now** that the row
-   exists (Hard rule 5 — artifact then mark), set
+1. In `comps/$slug/nodes/$node/node.md` frontmatter, **only now** that the
+   journal line exists (Hard rule 5 — artifact then mark), set
    `lb: <public score>` (or `lb: pending` if the poll window closed unscored).
-   The ledger row is the submission record — the node carries only the score.
-2. Update that node's row in `comps/$slug/graph.md` — its `lb` cell (and
-   `status`, if this submit promoted it to `champion`). The Mermaid label keeps
-   the node's `cv`; the table carries the `lb`.
-3. Append one timestamped line to `comps/$slug/journal.md`:
-   ```
-   <date -u +%FT%RZ>  $node  submit  cv=$cv  lb=$lb  gap=$(cv−lb)  used=<used+1>/<lim>
-   ```
-4. **Log the CV↔LB gap as a diagnostic, never an auto-demote** (Hard rule 6). A
-   large gap is something to *surface to the human* (and consider a one-off
-   adversarial-validation diagnostic next round), not a reason to change the
-   champion. The champion is decided by CV in `graph.md`; submitting does not
-   re-rank it.
+2. `uv run tools/render_state.py comps/$slug` — the SUBMIT/LB lines flow into
+   `state.md`'s ledger table and the node's `lb` cell automatically.
+3. **Log the CV↔LB gap as a diagnostic, never an auto-demote** (Hard rule 6) — a
+   `NOTE` line if it's notable. A large gap is something to *surface to the
+   human* (and consider a one-off adversarial-validation diagnostic next round),
+   not a reason to change the champion. The champion is decided by CV
+   (`PROMOTE` lines); submitting does not re-rank it.
 
 ---
 
@@ -198,5 +191,5 @@ with `| <date>` so they're never miscounted):
 
 State, in plain language: which node was submitted, its CV, the public score (or
 `pending`), the CV↔LB gap, and how many of the day's slots remain. Point to the
-ledger (`comps/$slug/submissions.md`) and the node dir for full detail. If the
-budget was already exhausted, say so and when the next slot opens (00:00 UTC).
+journal's SUBMIT lines and the node dir for full detail. If the budget was
+already exhausted, say so and when the next slot opens (00:00 UTC).

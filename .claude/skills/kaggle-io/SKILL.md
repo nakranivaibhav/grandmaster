@@ -25,7 +25,7 @@ same shell that runs the tool. Set both, then call:
 ```bash
 export KAGGLE_USERNAME="$KAGGLE_USERNAME" KAGGLE_KEY="$KAGGLE_KEY"   # from the human's secrets
 lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/<slug>/spec.md)
-uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md --limit "$lim"
+uv run tools/kaggle_io.py budget --ledger comps/<slug>/journal.md --limit "$lim"
 ```
 
 - The tool's `ensure_auth()` accepts **either** `KAGGLE_USERNAME`+`KAGGLE_KEY`
@@ -75,8 +75,9 @@ Submission scoring is **async** — `submit` only enqueues. Poll with
 `/kaggle-submit`): the per-comp daily limit comes from spec.md's
 `daily_submission_limit` (asked from the human at kaggle-start), resets 00:00 UTC.
 A *server-rejected* submission does **not** burn quota — safe to fix and resubmit.
-After a real submit, append a UTC-timestamped row to `comps/<slug>/submissions.md`
-(5 columns: `| ts | node | cv | lb | note |`).
+After a real submit, append a `SUBMIT` line to `comps/<slug>/journal.md`
+(`<ts>  SUBMIT node_NNNN cv=<f> lb=<f|pending> — <note>`; the async score
+backfills as an `LB` line).
 
 ### submissions — list past submissions + their scores (poll here)
 ```bash
@@ -98,10 +99,11 @@ trigger (CLAUDE.md rule 6).
 `daily_submission_limit` (asked from the human at kaggle-start), never a literal:
 ```bash
 lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/<slug>/spec.md)
-uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md --limit "$lim"
+uv run tools/kaggle_io.py budget --ledger comps/<slug>/journal.md --limit "$lim"
 ```
-Counts rows in `submissions.md` whose UTC date == today (today via the tool's
-own `datetime.now(timezone.utc)`, matching the `date -u` rule). The count is
+Counts the journal's `SUBMIT` lines whose UTC date == today (legacy
+`submissions.md` table rows also count, for pre-migration comps; today via the
+tool's own `datetime.now(timezone.utc)`, matching the `date -u` rule). The count is
 **computed at read time**, never stored, so it can't drift across a resume.
 Prints e.g. `2026-06-05  2/<lim> used  (<lim>−2 remaining, resets 00:00 UTC)`. A
 row counts only if it starts with `| <YYYY-MM-DD` — keep the ledger in that
@@ -155,4 +157,4 @@ the wrapper is wired correctly before a stage depends on it.
 - Two human gates: accept rules + phone-verify — surface, don't retry.
 - 403 = rules/verification, **not** creds. 429 = handled. 401 = creds.
 - Downloads unzip themselves. Submits are async — poll `submissions`.
-- Budget is derived from `submissions.md`, never a stored counter.
+- Budget is derived from the journal's `SUBMIT` lines, never a stored counter.

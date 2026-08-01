@@ -21,9 +21,9 @@ is proven by its test passing, not by a tick.
 ---
 
 ## 0. Resume + preconditions
-1. `today=$(date -u +%F)`. Read `$C/progress.md`; confirm `eda` is the first
-   unticked stage. If `understand`/`toolkit` are unticked, stop and tell the
-   human to run `/kaggle-start` first.
+1. `today=$(date -u +%F)`. `uv run tools/render_state.py $C`, read `state.md`;
+   confirm `eda` is the first unticked stage. If `understand`/`toolkit` are
+   unticked, stop and tell the human to run `/kaggle-start` first.
 2. Read `$C/spec.md` — especially its fenced ```yaml machine block. Pull:
    `task_type`, `metric` (+ `metric_direction`), `target_col`, `id_col`, and any
    `time_col` / `group_key` the spec flagged. These are the leakage-hazard
@@ -179,8 +179,9 @@ full resolution.
 
 ## 6. Gate: the EDA Decision Card
 Render the card in the CLAUDE.md Decision Card format, then obey the autonomy dial
-in `$C/config.md` (`interactive` waits here; `auto_except_submit`/`full_auto`
-proceed). Stage-specific content:
+in `$C/control.md` (`interactive` touches `$C/.waiting-on-human` and waits here,
+removing the sentinel on the answer; `auto_except_submit`/`full_auto` proceed).
+Stage-specific content:
 - **stage:** eda
 - **What's going on:** Looked at the data and wrote down what needs cleaning.
 - **Found / propose:** <3–4 plain bullets: target balance, top missing cols, the
@@ -190,9 +191,9 @@ proceed). Stage-specific content:
 - **Why:** Clean, leak-free inputs before we freeze the CV split.
 - **Cost:** <minutes> · CPU only · 0 submissions
 
-On approve/proceed: tick the `eda` stage box in `$C/progress.md` (only now), and
-append one UTC-stamped line to `$C/journal.md`:
-`$(date -u +%FT%RZ) eda: <N> cleaning steps coded+tested; CV hazard=<time|group|none>; → validate`.
+On approve/proceed (only now), append the stage event to `$C/journal.md` and
+re-render `state.md`:
+`$(date -u +%FT%RZ)  STAGE eda done — <N> cleaning steps coded+tested; CV hazard=<time|group|none>; → validate`.
 The next stage is `/kaggle-validate`, which reads your leakage verdict to pick the
 fold scheme via `tools/make_folds.py`.
 

@@ -19,7 +19,8 @@ under `comps/` (or ask which one). Everything below uses `comps/<slug>/`.
 
 ## 0 · Preconditions (don't skip)
 - `comps/<slug>/spec.md` and `comps/<slug>/eda.md` must exist and the `eda`
-  stage box in `progress.md` must be ticked. If EDA isn't done, stop and tell
+  stage must be ticked in `state.md` (render it first:
+  `uv run tools/render_state.py comps/<slug>`). If EDA isn't done, stop and tell
   the human to run `/kaggle-eda` first — you cannot pick a leak-correct scheme
   without knowing the data's group/time structure.
 - `comps/<slug>/data/train.csv` must exist (downloaded + unzipped).
@@ -139,13 +140,13 @@ scheme + n_splits + seed are immutable. folds.json is the source of truth.
 A node that re-splits with a different seed or scheme is auto-rejected.
 ```
 
-## 5 · Tick the box and render the Decision Card
-Artifact-then-tick: only after `folds.json` and `validation.md` both exist, tick
-the `validation` stage box in `comps/<slug>/progress.md` and append one
-timestamped line to `journal.md`:
+## 5 · Append the stage event and render the Decision Card
+Artifact-then-mark: only after `folds.json` and `validation.md` both exist,
+append the stage event and re-render:
 ```bash
-echo "| $NOW | validation | froze <scheme> ${NSPLITS}-fold seed=42, holdout=<count> rows | folds.json validation.md |" \
+echo "$NOW  STAGE validation done — froze <scheme> ${NSPLITS}-fold seed=42, holdout=<count> rows" \
   >> comps/<slug>/journal.md
+uv run tools/render_state.py comps/<slug>
 ```
 Then render `📋 validation` in the **CLAUDE.md Decision Card format** (this is a
 **human gate** outside `full_auto`); stage-specific content:

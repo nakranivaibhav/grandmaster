@@ -9,7 +9,8 @@ allowed-tools: Bash, Read, Write, Edit
 
 You are at the very front of the pipeline (see CLAUDE.md "Canonical run order").
 Gates you own: **understand** and **toolkit**. Both are human gates unless
-`config.md` says `full_auto`. Do the work, then render the cards and wait.
+`control.md` says `full_auto`. Do the work, then render the cards and wait
+(touch `comps/<slug>/.waiting-on-human` while waiting; remove it on the answer).
 
 ## 0 · derive the slug
 
@@ -24,9 +25,9 @@ COMP="comps/$SLUG"; echo "slug=$SLUG"
 If `$SLUG` is empty or still contains a scheme, ask the human for the plain slug
 and stop.
 
-**Resume check.** If `$COMP/progress.md` already exists, this comp was started
-before — read it, resume at the first unticked stage (and if experiments exist,
-read `graph.md` for the node map; a `running` node resumes at its first missing
+**Resume check.** If `$COMP/journal.md` already exists, this comp was started
+before — `uv run tools/render_state.py "$COMP"`, read `state.md`, and resume at
+the first unticked stage (a `running` node resumes at its first missing
 artifact). Do NOT re-scaffold. Only continue below if it is absent.
 
 ## 1 · scaffold comps/<slug>/
@@ -64,143 +65,48 @@ top that is the single home of that file's format rules (what belongs in it, wha
 never does, what else must change with it). Every later editor obeys the contract
 of the file it edits.
 
-The append-only logs first:
+`journal.md` — THE single written source of truth (event-sourced, append-only):
 
 ```bash
 cat > "$COMP/journal.md" <<'EOF'
 <!-- journal.md contract
-WHAT: append-only history — ONE `date -u` timestamped line per event (node verdict,
-probe, decision, round open/close, session summary). Facts + numbers.
+WHAT: THE single written source of truth — append-only, one `date -u` timestamped
+line per event: a structured prefix a script can parse, then optional free prose
+after " — ". Full grammar: tools/render_state.py docstring (its single home).
+Events: SETUP · STAGE · FEATURESET · REGISTER · LAUNCH · SCORE · PROMOTE ·
+SUBMIT · LB · ROUND-OPEN · ROUND-CLOSE · OUTSIDE · PROBE · NOTE · CORRECT.
+Appends happen ONLY in the main session or the proposer's sequential REGISTER job.
+After any append batch: `uv run tools/render_state.py comps/<slug>` regenerates
+state.md (the derived view — NEVER hand-edited).
 A dead end is a SCOPED CLOSURE: "tried X, measured Y, reopen-if Z" — never a verdict
 about the run ("ceiling/exhausted/impossible/nothing left" are banned, hard rule 10).
-NEVER: edit or delete a past line. Narrative lives here and ONLY here.
--->
-EOF
-cat > "$COMP/submissions.md" <<'EOF'
-<!-- submissions.md contract
-WHAT: append-only ledger, one row per REAL Kaggle submission:
-| <date -u +%Y-%m-%dT%H:%MZ> | node | cv | lb | note |
-Budget is DERIVED from these rows (rows starting "| <today's date>") — never edit or
-delete a past row. Human-directed LB probes carry PROBE in note (~2/day max).
+NEVER: edit or delete a past line — a mistake is fixed by appending a CORRECT line.
 -->
 EOF
 ```
 
-`graph.md` — THE MAP, scaffolded as an empty graph (contract on top, then a header
-line, a Mermaid block with just the `root`, and an empty `## nodes` table;
-downstream stages add nodes):
-
-````markdown
-<!-- graph.md contract
-WHAT: the experiment map — exactly three parts: ONE-line header (metric · champion ·
-updated <date -u>) · Mermaid DAG (labels `node_NNNN · desc · cv`, champion :::champ) ·
-`## nodes` table (last col = path to the node record). NOTHING else — no narrative,
-no session notes, no strategy (journal.md owns those).
-ON any node event, change THREE places together: node.md frontmatter · Mermaid
-label+edge(s) · table row.
-ON promote: crown the new champion AND demote the old in the SAME pass (frontmatter
-status, :::champ, table status, header champion: line).
-INVARIANT after every edit: exactly ONE champion — the same node in all four places.
--->
-# <slug> — experiments
-metric: <m> (<dir>) · champion: none · updated <TODAY>
-
-```mermaid
-graph LR
-    root
-```
-
-## nodes
-| node | what it is | cv | lb | status | detail |
-|------|------------|----|----|--------|--------|
-````
-
-Use `<m>`/`<dir>` from `spec.md` once written (leave as placeholders if scaffolding
-before spec; the next stage to add a node fills them in).
-
-`config.md` — autonomy dial defaults to interactive:
+`control.md` — the HUMAN's file: autonomy dial + halt switch (the autopilot gate
+reads it at every turn-end):
 
 ```markdown
-# config — <slug>
+# control — <slug>
 autonomy: interactive
-# interactive | auto_except_submit | full_auto  (flip by voice; see CLAUDE.md)
+halt: false
+# autonomy: interactive | auto_except_submit | full_auto  (flip by voice; see CLAUDE.md)
+# halt: true stops the autopilot gate from continuing the session — the kill switch.
 ```
 
-`progress.md` — the macro resume file. The header line is derived from `date -u`
-(regenerate it on every read; deadline filled from spec.md once written):
-
-```markdown
-<!-- progress.md contract
-WHAT: the thin macro-resume checklist — derived header line + setup boxes + stage
-boxes. Tick a box only after its named artifact exists (artifact-then-mark).
-NEVER: narrative, session summaries, results commentary, strategy — journal.md owns
-those. This file stays ~this size for the comp's whole life.
-ON read: regenerate the header line from the shell (date -u; budget from the ledger).
--->
-# progress — <slug>
-today (UTC): <TODAY>   submissions: 0/<limit, tbd from spec> (resets 00:00 UTC)   deadline: <tbd from spec>
-
-## one-time setup (human)
-- [ ] KAGGLE_USERNAME + KAGGLE_KEY in env        → kaggle_io ensure_auth passes
-- [ ] competition rules accepted in browser      → download returns 200
-- [ ] account phone-verified (GPU/internet)      → only if kernels needed
-- [ ] data downloaded + unzipped                 → comps/<slug>/data/
-- [ ] spec.md written                            → comps/<slug>/spec.md
-
-## stages
-- [ ] understand   (card approved)
-- [ ] toolkit      (card approved)
-- [ ] eda          → /kaggle-eda
-- [ ] validate     → /kaggle-validate
-- [ ] baseline     → /kaggle-baseline
-- [ ] experiment   → /kaggle-experiment
-```
-
-`outside.md` — external intel, empty at bootstrap (the look-outside habit fills it):
-
-```markdown
-<!-- outside.md contract
-WHAT: distilled external intel — public notebooks, discussion threads, papers,
-winner recipes. One entry per find: source (link / kernel ref) · the concrete lever
-it suggests · the numbers claimed. The proposer reads this file; snapshot full
-artifacts under refs/, don't paste them here.
-NEVER: mood, verdicts, strategy narrative — only facts a proposal can cite.
--->
-# outside — <slug>
-```
-
-`data.md` — the data-lineage map, scaffolded at `raw → base` (the proposer adds
-feature-set rows on register):
-
-````markdown
-<!-- data.md contract
-WHAT: data lineage — ONE-line header · Mermaid (raw → base → fs_* → consuming
-nodes) · one table row per engineered feature-set:
-| id | what | derived from | recipe | leak-safety | produced by | consumed by |
-leak-safety ∈ stateless | fit_in_fold (defined in CLAUDE.md — it drives the
-developer's self-gate). The proposer writes rows + each node's uses_data on
-register; keep `consumed by` current. NEVER: narrative.
--->
-# <slug> — data lineage
-base = as-downloaded raw (cleaning per eda.md)
-
-```mermaid
-graph LR
-    raw --> base
-```
-
-## feature-sets
-| id | what | derived from | recipe | leak-safety | produced by | consumed by |
-|----|------|--------------|--------|-------------|-------------|-------------|
-````
-
-Append the first journal line (timestamped, one line per event); leave
-`submissions.md` at its contract-only stamp and `graph.md` at its empty-map
-scaffold (downstream stages add rows/nodes):
+Append the first journal lines (timestamped, one per event):
 
 ```bash
-printf '%s  bootstrap comps/%s  (autonomy=interactive)\n' "$NOW" "$SLUG" >> "$COMP/journal.md"
+printf '%s  NOTE — bootstrap comps/%s (autonomy=interactive)\n' "$NOW" "$SLUG" >> "$COMP/journal.md"
+uv run tools/render_state.py "$COMP"
 ```
+
+Everything else is generated or created downstream: `state.md` by the renderer,
+`spec.md`/`eda.md`/`validation.md`/`folds.json` by their stages, node dirs by the
+proposer. Do NOT scaffold graph/progress/data/submissions/outside files — those
+are retired; their content lives as journal events (CLAUDE.md layout).
 
 ## 2 · surface the one-time human provisioning, then maybe STOP
 
@@ -257,8 +163,10 @@ echo "sample_submission: ${SAMPLE:-NOT FOUND}"
 
 If there is no sample_submission (common in code-/vision comps), note it:
 `submission_columns` and `n_test_rows` come from the overview/test set instead
-and `sample_submission` is `null` in the yaml. Tick "data downloaded" in
-`progress.md`.
+and `sample_submission` is `null` in the yaml. Append the setup events:
+```bash
+printf '%s  SETUP auth done\n%s  SETUP rules done\n%s  SETUP data done\n' "$NOW" "$NOW" "$NOW" >> "$COMP/journal.md"
+```
 
 ## 4 · read overview + sample_submission → write spec.md
 
@@ -343,8 +251,8 @@ n=$(sed -n '/^```yaml/,/^```/p' "$COMP/spec.md" | grep -c ':')
 [ "$n" -ge 10 ] && echo "machine block ok ($n keys)" || echo "MALFORMED machine block — fix spec.md"
 ```
 
-Then back-fill `deadline` + the submission limit into `progress.md`'s header line
-and tick the "spec.md written" box.
+Then append `SETUP spec done` to the journal and re-render `state.md` (its
+header derives the deadline + budget from spec.md from now on).
 
 ## 5 · UNDERSTAND Decision Card (gated)
 
@@ -359,10 +267,11 @@ content:
 - *Why*: this reading drives every later flag; a wrong metric poisons everything.
 - *Cost*: ~0 compute · 0 submissions.
 
-Honor the dial: if `config.md` is `full_auto`, print the card and proceed without
-waiting; otherwise **wait**. On "Change something", edit `spec.md` (e.g. fix the
-metric/direction/columns) and re-render. On approval, tick `understand` in
-`progress.md` and append a journal line.
+Honor the dial: if `control.md` is `full_auto`, print the card and proceed
+without waiting; otherwise touch the `.waiting-on-human` sentinel and **wait**
+(remove it on the answer). On "Change something", edit `spec.md` (e.g. fix the
+metric/direction/columns) and re-render the card. On approval, append
+`STAGE understand done` and re-render `state.md`.
 
 ## 6 · TOOLKIT Decision Card (gated)
 
@@ -391,9 +300,9 @@ content:
 - *Why*: keeping ≥2 different families alive lets the search pivot, not just tune.
 - *Cost*: ~0 now · deps added per-node with `uv add` when first used.
 
-Honor the dial as in step 5. On approval, tick `toolkit` in `progress.md`, append
-a journal line recording the seeded families, and **point the human to the next
-stage**:
+Honor the dial as in step 5. On approval, append `STAGE toolkit done` plus a
+`NOTE` line recording the seeded families, re-render `state.md`, and **point the
+human to the next stage**:
 
 > Bootstrapped. spec + understand + toolkit are locked. Next: run **/kaggle-eda**
 > to dig into the data (interactive cleaning, one code+test step at a time).
@@ -403,4 +312,4 @@ stage**:
 - Write **only** under `comps/<slug>/`. Never touch `tools/`, `CLAUDE.md`, or `pyproject.toml`.
 - Every script runs via `uv run …`; every date comes from `date -u` (UTC).
 - A 403 is **rules-not-accepted**, not bad creds — surface to the human and STOP.
-- Artifact-then-tick: a `progress.md` checkbox is only ticked after its named file exists.
+- Artifact-then-mark: a `STAGE`/`SETUP` journal line is appended only after its named file exists.

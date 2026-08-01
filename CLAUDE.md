@@ -18,15 +18,20 @@ drive the whole pipeline: run each stage in order by invoking its skill's
 procedure, advance automatically between stages, and stop only at a gated
 Decision Card (per the autonomy dial).
 
-**Canonical run order** — this is also the live checklist in
-`comps/<slug>/progress.md`; keep it ticked (artifact-then-mark) and resume from
-the first unticked stage:
+**Canonical run order** — the live checklist is the `## stages` block of the
+generated `state.md` (derived from `STAGE <name> done` journal lines; append the
+line only after the stage's artifact exists, then re-render) — resume from the
+first unticked stage:
 
 1. **kaggle-start** — bootstrap + download + `spec.md` → Understand & Toolkit cards   · gates: understand, toolkit
 2. **kaggle-eda** — data understanding + cleaning (code + unit tests) → `eda.md`       · gate: eda
 3. **kaggle-validate** — freeze `folds.json` + holdout → `validation.md`               · gate: validation
 4. **kaggle-baseline** — dumb baseline → first submission → champion                   · gate: submit
-5. **kaggle-experiment** — propose (proposer↔critic) → build EVERY proposal → gate → decide · gates: experiment_plan, submit
+5. **kaggle-experiment** — the terminal grind. Two paths, orchestrator's choice (see
+   "Subagents & the disk-contract loop"): **direct** (orchestrator writes + runs +
+   gates the next step itself — the default) or **delegated** (proposer ideas →
+   reviewer's single hardening pass → orchestrator registers from `refined.md` →
+   build → gate → decide) · gates: experiment_plan, submit
 
 The experiment loop is the **terminal stage** — you keep proposing, building, and
 submitting better nodes until the human stops you or the deadline hits. `kaggle-status` is read-only and available any time (it's also the
@@ -43,10 +48,11 @@ human to review. Use it when the human says "publish/upload a kernel/notebook" o
 - At a **gated** step, render the Decision Card and **wait** (`interactive` /
   `auto_except_submit`) or proceed (`full_auto`). Never auto-spend a submission
   outside `full_auto`.
-- Update `progress.md` after each stage (tick the stage box, regenerate the
-  derived header).
-- On a **fresh session**, FIRST read `comps/<slug>/progress.md` and resume from
-  the first unticked stage — never restart completed stages.
+- After each stage: append its `STAGE <name> done` journal line, then re-render
+  `state.md`.
+- On a **fresh session**, FIRST run `uv run tools/render_state.py comps/<slug>`
+  and read `state.md`; resume from the first unticked stage — never restart
+  completed stages.
 - One competition per `comps/<slug>/`; if several exist, ask which to work on.
 - **Never decide to stop. The goal is to top the leaderboard, and you pursue it with
   unwavering tenacity.** Don't conclude "we've hit the ceiling," "returns are thinning,"
@@ -76,7 +82,7 @@ Autonomy: <mode> — <waiting | proceeding>
 Write for a smart non-specialist. Never show in-chat thumbnails as proof —
 report numbers + file paths and let the human open files at full resolution.
 
-### Autonomy dial  (stored in `comps/<slug>/config.md`, flip any time by voice)
+### Autonomy dial  (stored in `comps/<slug>/control.md`, flip any time by voice)
 | mode | pauses at | use when |
 |---|---|---|
 | `interactive` (default) | **every** gate | new comp, learning the data |
@@ -87,11 +93,33 @@ Gates, in order: `understand · toolkit · eda · validation · experiment_plan 
 `understand` and `submit` stay human except in `full_auto` — a wrong reading of
 the metric poisons everything, and a real submission is the only irreversible,
 rate-limited, public action. The human flips the dial by just saying "go auto" /
-"ask me before submitting" / "pause"; update `config.md` when they do.
+"ask me before submitting" / "pause"; update `control.md` when they do.
+
+**Waiting sentinel.** Whenever a gated Decision Card is rendered and you WAIT,
+`touch comps/<slug>/.waiting-on-human` first; remove it the moment the human
+answers. The autopilot gate (below) reads it — it is what lets an autonomous
+session stop legitimately at a gate instead of being pushed onward.
 
 **Subagents cannot pause for a human** — only the main session can. So all gated
 stages run in the main session (skills); only the non-gated experiment grind runs
 as subagents.
+
+### Autopilot driver — the session keeps itself moving
+`tools/autopilot_gate.py` is registered as a **Stop lifecycle hook in BOTH
+harnesses** (`.claude/settings.json` · `.codex/hooks.json`). Every time the agent
+tries to end its turn, the gate reads disk (control.md dial + halt · the
+`.waiting-on-human` sentinel · the journal replay · LAUNCH marker files) and
+either lets the session go idle or blocks the stop with the next concrete step
+(gate a finished run → build a registered node → open the next round → run the
+next stage). Consequences:
+- **You never "stop for the day" on your own** — the gate decides; work with it,
+  not around it. When it blocks your stop, do the step it names.
+- **Stopping legitimately** = the dial says `interactive`, or `halt: true` in
+  `control.md`, or the `.waiting-on-human` sentinel exists, or every in-flight
+  run is still training (wake is event-driven), or the circuit breaker fired
+  (3 consecutive continuations with zero journal growth ⇒ a human must look).
+- The human kills everything by saying "pause"/"halt" (set `halt: true`) or
+  flipping the dial to `interactive`.
 
 ---
 
@@ -110,9 +138,9 @@ as subagents.
    bundle coupled changes that only make sense together (e.g. an auxiliary second
    target + the loss that trains it) — that is ONE hypothesis; if it wins, ablate
    the bundle next round to recover attribution.
-5. **Artifact-then-mark.** Do the work → write the artifact → *then* mark it done
-   (tick a `progress.md` stage box, or write the node field the artifact justifies
-   — `cv` after the log, `status: valid` after the checks). A mark never runs
+5. **Artifact-then-mark.** Do the work → write the artifact → *then* append the
+   journal line that marks it (a `STAGE … done` after the stage's file exists, a
+   `SCORE` only after the log/OOF/self-checks it reports). A mark never runs
    ahead of the file it names.
 6. **Trust a well-built CV over the public LB.** The public LB is a small noisy
    slice; chasing it causes private shake-up. A CV↔LB gap is a *diagnostic to
@@ -128,7 +156,7 @@ as subagents.
    needed variant) — try the library first, and if you fall back, say so explicitly with the
    reason. (A thin training loop around a library `Module` is normal, not hand-rolling.)
 9. **An LB submission must come from a registered node.** Anything submitted to the
-   leaderboard or held as a finals candidate is a node in `graph.md` first (a `combine`
+   leaderboard or held as a finals candidate is a REGISTERED node first (a `combine`
    over external artifacts is fine) — never a loose comp-root script.
 10. **Facts, not forecasts (scoped closures).** A dead end is recorded as *tried X,
     measured Y, reopen-if Z* — scoped to its evidence, never widened into a verdict
@@ -138,35 +166,67 @@ as subagents.
     suppressed (an under-built base, a ported recipe, a bigger pool under shrinkage).
     A closure prunes ONE direction under stated conditions and goes stale when its
     reopen-if triggers; only the post-deadline private LB may pronounce on a run.
+11. **High-signal long-run monitoring only.** Once a background node has a marker
+    file and watchdog, do not poll its process, log, marker, or agent status and do
+    not emit wait-status chatter. Act only on a completion result, watchdog failure,
+    or an explicit human request for status. The watchdog—not repeated observation—
+    owns liveness.
 
 ---
 
-## Per-competition layout (everything markdown except data + folds)
+## Per-competition layout — ONE written truth, ONE generated view
 
 ```
 comps/<slug>/
-  progress.md      # MACRO resume: setup checklist + stage checkboxes + derived date/budget/deadline header (champion: see graph.md)
-  spec.md          # the contract (prose + a fenced yaml machine block of key fields, incl. daily_submission_limit)
-  config.md        # autonomy mode
-  eda.md           # free-form findings + cleaning rationale (PROSE, no checkboxes)
+  journal.md       # THE SINGLE WRITTEN SOURCE OF TRUTH — append-only, structured event
+                   # lines + prose (grammar: tools/render_state.py docstring + the file's
+                   # own contract). Every state change is ONE appended line; nothing here
+                   # is ever edited. Folds in the old graph/progress/data/submissions/
+                   # outside files as events.
+  state.md         # GENERATED by `uv run tools/render_state.py comps/<slug>` — header,
+                   # setup/stage checklists, Mermaid DAG, node table, data lineage,
+                   # submissions ledger. NEVER hand-edited; wrong ⇒ re-render; still
+                   # wrong ⇒ fix ONE journal line (append CORRECT). Re-render after
+                   # every append batch.
+  control.md       # the HUMAN's file: autonomy dial + halt switch (the autopilot gate
+                   # reads it every turn-end)
+  spec.md          # the contract (prose + fenced yaml machine block, incl.
+                   # daily_submission_limit) — written once at kaggle-start
+  eda.md           # free-form findings + cleaning rationale (write-once prose)
   validation.md    # the frozen CV scheme + why it matches the official metric
   folds.json       # frozen fold indices (split-seed only)
-  graph.md         # THE MAP: ONE header line + Mermaid DAG + the nodes table (no narrative — that lives in journal.md)
-  data.md          # DATA LINEAGE: engineered feature-sets (raw→base→fs_*) + which nodes consume each
-  journal.md       # append-only, timestamped — the ONLY narrative log (one line per node / probe / decision / round open+close)
-  outside.md       # distilled external intel: public notebooks · discussions · papers — one entry per find (source · lever · numbers)
-  rounds/round_NNNN/iter_N/   # the propose↔critic disk loop: proposals.md (proposer) · review.md + VERDICT (reviewer, marker written LAST) — pure audit trail once registered
+  rounds/round_NNNN/   # single-pass disk contract: proposals.md (proposer's ideas) ·
+                   # review.md + refined.md + VERDICT `DONE` (reviewer, marker LAST) —
+                   # the orchestrator registers from refined.md; frozen once registered
+  lines/<name>/    # an ORCHESTRATOR-RUN exploration line (the DIRECT path): its own
+                   # scripts + a running log, for an iterative sequence where each step
+                   # follows from the last measurement. Steps that produce a scored model
+                   # still REGISTER as normal nodes — the folder holds the code and the
+                   # narrative, never a second source of truth for state.
   refs/            # snapshotted external artifacts (pulled kernels, public OOF banks)
-  probes/          # cheap one-off scripts (restacks / diagnostics) — deliberately NOT nodes; one journal line each
+  probes/          # cheap one-off scripts — deliberately NOT nodes; one PROBE journal line each
   src/             # shared comp code (clean.py + its unit tests)
-  submissions.md   # append-only, UTC-timestamped ledger: | ts | node | cv | lb | note |
-  champion/        # best node's code + submission.csv + README (incl. the exact reproduce commands)
+  champion/        # best node's code + submission.csv + README (exact reproduce commands)
   nodes/node_NNNN/
-    node.md        # THE NODE RECORD: one file = plan + metrics + gate booleans (frontmatter) + prose
+    node.md        # plan (written once at REGISTER) + the builder's final numbers/prose
+                   # (written once at completion) — lifecycle lives in journal events
     src/           # this node's bootstrapped pipeline
-    train.log  submission.csv  oof.npy  test_probs.npy   # raw artifacts (oof: n_train×k · test_probs: n_test×k, rows aligned to the frozen folds)
+    train.log  submission.csv  oof.npy  test_probs.npy   # raw artifacts (oof: n_train×k ·
+                   # test_probs: n_test×k, rows aligned to the frozen folds)
   data/            # downloaded + unzipped (gitignored)
 ```
+
+**Retired files** (pre-2026-07 comps may still carry them): `progress.md`,
+`graph.md`, `data.md`, `submissions.md`, `outside.md`, `config.md` — their content
+now lives as journal events (STAGE/SETUP · REGISTER/SCORE/PROMOTE · FEATURESET ·
+SUBMIT/LB · OUTSIDE) rendered into `state.md`, and `control.md` replaces
+`config.md`. An event that once needed coordinated edits in ~5 places is now ONE
+appended line — append-only state cannot drift.
+
+**Journal write discipline.** Appends happen ONLY in the main session — no
+worker ever touches the journal (developers write only their own `node.md` +
+artifacts and report a RESULT line; the orchestrator appends REGISTER, SCORE and
+every other event). After any append batch, re-render `state.md`.
 
 **Every markdown artifact above carries its own contract** — an HTML comment at the
 top of the file stating what belongs in it, what never does, and what else must
@@ -184,7 +244,7 @@ explicit `!` exception for it.
 
 ---
 
-## Experiment graph (`graph.md`)
+## Experiment graph (journal events, rendered into `state.md`)
 
 Experiments form a **DAG**, not a tree: most nodes have one parent, but a
 **combine** node merges several. Every node is **one atomic change** and attaches
@@ -209,30 +269,30 @@ to **the deepest ancestor(s) whose work it keeps**:
   plateau usually means under-built, not capped — pull a top public notebook
   (`kaggle kernels pull`) and diff your approach against it, scan the comp's Kaggle
   discussions for the winning recipe, or search the web / arXiv for the relevant
-  method. Land what you find in `outside.md` (one entry per find: source · the
-  concrete lever · the numbers claimed) so the proposer can read it; bring back one
+  method. Land each find as ONE `OUTSIDE` journal line (source · the concrete
+  lever · the numbers claimed) so the proposer can read it; bring back one
   concrete lever and draft it — don't keep grinding variants in the dark.
 
-### `graph.md` — the map you read first
-One file per comp, exactly three parts: a ONE-line header (metric · champion ·
-`updated <date -u>`), a Mermaid DAG (each node labelled `node_NNNN · <desc> · <cv>`,
-champion styled `:::champ`), and a `## nodes` table whose last column is the path to
-that node's full record. **No narrative anywhere in it** — commentary lives in
-`journal.md`. The editing rules live in the contract at the top of the file (the
-three-places-per-event rule: `node.md` frontmatter · Mermaid label+edge(s) · table
-row change together; promote = crown the new champion AND demote the old in the
-SAME pass). The invariant, restated because it drifts: **after every edit exactly
-ONE node is champion — the same node in frontmatter, Mermaid, table, and header.**
-A node built outside the proposer (a quick inline debug/combine) gets its three
-entries the moment you create it. Need more than the table shows? Open the path in
-the node's `detail` cell.
+### The map: append events, read `state.md`
+A node's whole lifecycle is journal events: `REGISTER` (op, parents, family,
+uses_data — the parents ARE the graph edges) → `LAUNCH` (a detached long run, with
+its marker path) → `SCORE` (status + cv/sem/holdout, appended by the orchestrator
+from the developer's RESULT line) → `PROMOTE` (champion change; the replay demotes
+the old champion automatically — "exactly one champion" is arithmetic now, not a
+rule to police). `tools/render_state.py` replays the journal and prints the
+Mermaid DAG + node table into `state.md`; nobody hand-maintains a diagram. A node
+built outside the proposer (a quick inline debug/combine) still gets its
+`REGISTER` line the moment you create it. Need more than the table shows? Open
+`nodes/<id>/node.md` (the `detail` column).
 
-### `data.md` — the data lineage (companion to `graph.md`)
-`graph.md` tracks **experiments** (node → parent); `data.md` tracks **data** — the
-engineered feature-sets and which nodes consume them (shape + editing rules in its
-top contract). Each node links back via its `uses_data: [fs_*]` field (`[]` = base
-only; combine nodes that blend OOF are `[]` — that lineage is the `combine` edges
-in `graph.md`).
+### Data lineage (FEATURESET events → the `state.md` lineage table)
+Experiments and data are two lineages over the same journal: `REGISTER` lines
+carry each node's `uses_data: [fs_*]` (`[]` = base only; combine nodes that blend
+OOF are `[]` — that lineage is the combine edges), and each engineered feature-set
+is born as ONE `FEATURESET` line (id · leak-safety class · derived-from ·
+producer node). The full build recipe lives in the **producing node's `node.md`**
+— written there anyway when the node was built; the journal line just points at
+it. The renderer derives the consumed-by lists.
 
 Every feature-set carries a **leak-safety class** — it tells
 the developer *how* the set may be built and what its self-gate must enforce:
@@ -245,9 +305,9 @@ the developer *how* the set may be built and what its self-gate must enforce:
   the label — easy to miss in a code read, so the `fit_in_fold` class is what
   flags it.)
 
-The **proposer** reads `data.md` (reuse a feature-set before re-engineering one) and,
-on register, writes its rows + the node's `uses_data`. The orchestrator keeps it
-current by hand, like `graph.md`.
+The **proposer** reads `state.md`'s lineage table (reuse a feature-set before
+re-engineering one) and, on register, appends the `FEATURESET` line + each node's
+`uses_data`. Nothing is kept current by hand — the renderer derives it.
 
 ### Search policy (how the proposer picks each proposal)
 The FULL policy lives in **`.claude/agents/kaggle-proposer.md`** — the single home;
@@ -257,8 +317,11 @@ parent) → **combine** de-correlated nodes when a blend's OOF beats the best si
 periodically **revive** discarded nodes (a re-examination habit that emits a normal
 draft/improve/combine — not a 5th operator). Proposals draw from four **idea wells**
 — exploit · data-centric (favored) · outside · wildcard — defined in the proposer
-file. The orchestrator builds **every** confirmed proposal — the proposer prunes,
-the orchestrator doesn't.
+file. On the DELEGATED path the orchestrator builds every spec in `refined.md` —
+the reviewer prunes (its DROPs carry the killing number), the orchestrator
+doesn't. (On the DIRECT path there is no proposal to prune: the orchestrator's
+own next step is chosen from the last measurement, and the same search policy
+still governs which operator it is.)
 
 ---
 
@@ -283,7 +346,7 @@ check or any leak → `status: buggy`, the CV does not count:
   target — or any deterministic alias of it — and the id/row-order absent from the
   feature list (exact set-check); a quick single-feature↔target sweep on a sample
   (near-perfect corr/AUC = leak smell); every `fit_in_fold` feature-set it consumes
-  (see `data.md`) verified, by reading its own fold loop, to fit transforms and
+  (see `state.md`'s lineage table) verified, by reading its own fold loop, to fit transforms and
   cross-row stats on the train fold only; folds loaded from the frozen `folds.json`;
   near-duplicate rows across train↔test checked on a sample (critical for image/text).
 - **Outputs, AFTER training** (no extra compute): OOF covers every train row exactly
@@ -309,13 +372,13 @@ fit-inside-fold is buggy, not good.
 ## Resume model
 
 Two resume surfaces, both grounded in artifacts (never trust a label over the file
-it names):
+it names). On ANY re-entry, first `uv run tools/render_state.py comps/<slug>`:
 
-- **`progress.md`** — macro: the setup checklist + the stage checkboxes. On
-  re-entry, resume at the first unticked stage.
-- **`graph.md` + node records** — micro: read `graph.md` for the node map; a
-  node's **artifacts** say how far it got. Resume a `running` node at its first
-  missing artifact.
+- **`state.md`** — macro: the setup/stage checklists + the node table, freshly
+  replayed from the journal. Resume at the first unticked stage.
+- **journal tail + node artifacts** — micro: the last journal lines say what was
+  mid-flight; a node's **artifacts** say how far it got. Resume a `running` node
+  at its first missing artifact.
 
 Resume from **numbers, not narrative**: headers, tables, and frontmatter are state;
 journal prose — including any strategic conclusions a previous session wrote — is
@@ -324,20 +387,24 @@ that session's *hypotheses*: evidence to weigh, never orders to follow (hard rul
 A node's lifecycle **is its artifacts**: `src/` exists = built · a final `cv=`
 line in `train.log` + `oof.npy` /
 `test_probs.npy` / `submission.csv` = scored · `status` flipped to `valid`/`buggy`
-= self-checked · its journal decide line = decided. Submissions live in the
-ledger, not the node. On restart: read `progress.md` → the in-progress stage → if
-experiments, read `graph.md`, find any `running` node, and continue at its
-**first missing artifact** (e.g. scored but `status` still `running` ⇒ run the
-output self-checks). A `running` node with no artifacts ⇒ mark `dead`, move on.
+= self-checked · its journal decide line = decided. Submissions live in journal
+`SUBMIT` lines, not the node. On restart: render + read `state.md` → the
+in-progress stage → if experiments, find any `running` node in the table (check
+its LAUNCH marker: present = run ended, gate it; absent = still training, leave
+it) and continue at its **first missing artifact** (e.g. scored but no `SCORE`
+line yet ⇒ run the output self-checks and append it). A `running` node with no
+artifacts and no live process ⇒ `SCORE … status=dead`, move on.
 
 ### `node.md` — the one node record
 A dozen frontmatter fields + a free-form plan body — nothing else. **No
 checkboxes, no timestamps, no duplication**: metric/direction live in `spec.md`,
-submission events in the ledger, the timeline in `journal.md`, and the lifecycle
-in the node's own artifacts. The literal template lives with its only writer —
-the `kaggle-proposer` REGISTER job; the developer and orchestrator fill the
-fields as the node progresses. Semantics: `status` (proposed | running | buggy |
-dead | valid | champion) is the search state, synced with `graph.md` — `valid`
+submission events and the timeline in `journal.md`, and the lifecycle in the
+node's own artifacts. The literal template lives with its only writer —
+the orchestrator's register step; the developer fills the result fields once at
+completion (the journal `SCORE` line, appended by the orchestrator from the
+RESULT report, is the search state the renderer reads — on a mismatch trust
+`node.md`, the artifact, and append a `CORRECT`). Semantics: `status` (proposed |
+running | buggy | dead | valid | champion) is the search state — `valid`
 means scored AND self-checked clean (the CV counts); `buggy` means crash, failed
 check, or leak (the CV does not count — the why goes in the journal line);
 `cv`/`sem`/`folds` are the score on the frozen folds. A cv-too-good implausible
@@ -350,22 +417,18 @@ every reference worth READING — never which files/functions to write.
 
 ## Budget & deadline — derived, never stored as a mutable counter
 
-`submissions.md` is an append-only, UTC-timestamped ledger
-(`| ts | node | cv | lb | note |`). The daily limit lives in **one place**:
-`spec.md`'s `daily_submission_limit`, asked from the human at kaggle-start (a
-blocking step — never assume a number). "Used today" is **computed** at read time
-so it can't drift across a resume:
+Every real Kaggle submission is ONE journal `SUBMIT` line
+(`<ts> SUBMIT node_NNNN cv=<f> lb=<f|pending> — <note>`; the async public score
+backfills as an `LB` line). The daily limit lives in **one place**: `spec.md`'s
+`daily_submission_limit`, asked from the human at kaggle-start (a blocking step —
+never assume a number). "Used today" is **computed** at read time so it can't
+drift across a resume:
 ```bash
-today=$(date -u +%Y-%m-%d)
-used=$(grep -c "^| $today" comps/<slug>/submissions.md)   # rows whose UTC date == today
 lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/<slug>/spec.md)
-# remaining = lim - used ;  resets 00:00 UTC
-# (or: uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md --limit "$lim")
+uv run tools/kaggle_io.py budget --ledger comps/<slug>/journal.md --limit "$lim"
+# counts today's SUBMIT lines; remaining = lim - used; resets 00:00 UTC
 ```
-`progress.md`'s header is regenerated on read:
-```
-today (UTC): <date -u +%F>   submissions: <used>/<lim> (resets 00:00 UTC)   deadline: <spec> (<days_left> left)
-```
+`state.md`'s header carries the same derived numbers on every render.
 `days_left = deadline − today`; when it gets small, **surface it** but keep
 running the experiment loop — never wind down on your own.
 
@@ -423,17 +486,49 @@ don't retry around them:
 
 ---
 
-## Long local trainings — marker file, event-driven (no timers)
+## Long local trainings — detached watchdog runs; a session NEVER waits
 
-When a node trains for minutes, run it backgrounded and let job-completion wake
-you — never a `ScheduleWakeup` timer poll, and never `pgrep -f` (it self-matches
-its own command line):
+**No session (main or subagent) ever sits waiting on a long run** — that is what
+produced the zombie-developer failures (an agent dies mid-wait and the run is
+orphaned, or claims a launch that doesn't exist). The split:
+
+- The **developer** builds + preflights + times one unit. Projected ≲15 min ⇒ it
+  just runs the thing inline and self-gates as usual. Longer ⇒ it writes the
+  exact launch command to `nodes/node_NNNN/run.sh` and returns
+  `status=ready_to_run` — it does NOT launch.
+- The **orchestrator** launches every long run **`setsid`-detached in BOTH
+  harnesses** — the run must survive the launching session's death (a harness
+  background task is killed with its session: a headless `claude -p` exit
+  SIGKILLed a live training this way on 2026-07-18, and the marker was never
+  touched, so the gate read "still training" forever). Launch, then append the
+  `LAUNCH` line:
 ```bash
 DONE=/tmp/<slug>_node_NNNN.done ; rm -f "$DONE"
-(uv run python comps/<slug>/nodes/node_NNNN/src/solution.py \
-   > comps/<slug>/nodes/node_NNNN/train.log 2>&1 ; touch "$DONE") &
-# wait on [ -f "$DONE" ]; tail the log filtered for: cv=|Traceback|Error|Killed|OOM
+setsid nohup uv run tools/run_with_watchdog.py \
+  --log comps/<slug>/nodes/node_NNNN/train.log \
+  --marker "$DONE" \
+  --idle-seconds 900 \
+  -- bash comps/<slug>/nodes/node_NNNN/run.sh >/dev/null 2>&1 < /dev/null &
 ```
+  The wake is a separate, cheap **marker-waiter** — the ONLY thing a harness
+  background task may hold (if the session dies, only the waiter dies; the run
+  is unaffected and the marker still lands for the next session's gate):
+  - **Claude Code:** `until [ -f "$DONE" ]; do sleep 30; done` via the Bash
+    tool's `run_in_background: true` — the harness re-invokes the session when
+    it exits. That IS the wake; nothing polls (hard rule 11). **Never launch
+    the watchdog itself through `run_in_background`.**
+  - **Codex:** add `--on-done '<nudge command>'` to the watchdog so it pokes
+    the idle session awake
+    (e.g. `tmux send-keys -t <session> "continue — a run finished" Enter`).
+  - Either way the marker is touched on EVERY exit (success, crash, stall-kill)
+    — it means "the run ended", and the autopilot gate turns it into "gate this
+    node now" at the next turn-end.
+- On wake: tail the log filtered for `cv=|Traceback|Error|Killed|OOM|WATCHDOG_STALL`,
+  spawn the developer with a **GATE** job (output self-checks + node.md numbers),
+  append the `SCORE` line from its RESULT, re-render, continue the round.
+- Exit 124 / `WATCHDOG_STALL` ⇒ the run stalled and was killed ⇒ `status: buggy`;
+  inspect before any debug-node retry, never blindly relaunch. Never `pgrep -f`
+  (it self-matches its own command line).
 
 ---
 
@@ -442,21 +537,75 @@ DONE=/tmp/<slug>_node_NNNN.done ; rm -f "$DONE"
 The main session (the `/kaggle-experiment` skill) is the **orchestrator** — the
 **second brain**: referee, historian, and the human's gateway. It applies the
 written rules, verifies, and writes each round down (journal + lessons at the
-decide step); it never redesigns a proposal — anything no rule covers goes to the
-human or back to the proposer. It sequences propose → register → build-and-gate
-EVERY proposal → decide. Three workers:
+decide step); it registers from the reviewer's `refined.md` as written —
+anything no rule covers goes to the human.
 
-- **`kaggle-proposer`** is the **first brain** — all open-ended judgment about
-  what to try next — reads `graph.md` + `data.md`
-  + `journal.md` + `outside.md` + `MEMORY.md`, applies the search
-  policy (its agent file is the policy's single home), and writes N proposals to
-  the round dir (`iter_N/proposals.md`); revises them from the reviewer's on-disk
-  feedback; and (once confirmed) writes the node records + graph rows.
-- **`kaggle-proposal-reviewer`** critiques the *proposals* before any code is written
-  (soundness, redundancy, one-atomic-change, leak-risk) — writes
-  `iter_N/review.md` (blocking vs nit per proposal), then the one-word
-  `iter_N/VERDICT` marker (`PASS`/`REVISE`) LAST. The auto-mode stand-in for
-  the human director — distinct from the per-node leakage gate below.
+### Two paths, and the orchestrator picks
+
+**The subagents are tools, not tollbooths.** The orchestrator may write code and
+run experiments **directly**, and calls a worker when that worker's specific value
+is what's missing. Both paths obey the same non-negotiables (below).
+
+- **DIRECT path (the default).** The orchestrator writes the script itself, runs
+  it, gates it, and appends the journal lines — for **any CPU work regardless of
+  duration, including feature engineering** (FEATURESET lines, leak-safety
+  classes and the self-checks apply unchanged — the discipline stays, only the
+  worker changes). Typical DIRECT work: a determined successor (the next node
+  fully implied by the parent's own measurements), an iterative line where each
+  step follows from the last measurement, a quick debug, a combine over existing
+  OOF, a one-knob A/B, any probe, and **GATE jobs on finished runs** (tail the
+  log, run the node's own output self-checks, append SCORE — spawning a
+  developer for this is pure overhead). One safety carve-out kept: runs
+  projected ≳15 min are still *launched* `setsid`-detached ("Long local
+  trainings" above) — that rule is about surviving session death, not about who
+  writes the code. An **exploration line may own a folder**
+  (`comps/<slug>/lines/<name>/`) with its own scripts and a running log.
+- **DELEGATED path (narrowed to what each worker uniquely provides).** Call
+  `kaggle-proposer` when you need a *fresh perspective* — the search has
+  plateaued, a family is exhausted, you are choosing between directions rather
+  than executing one, or you notice yourself repeating a motif; it hands back
+  ideas, the reviewer hardens them, you register. Call `kaggle-developer` only
+  for: **GPU/long builds**, **parallelism** (several independent nodes at once,
+  `isolation: worktree`), **fresh-context isolation** (your own context is
+  polluted by a failed variant), or a **holdout/leak-sensitive node** where a
+  second pair of eyes has demonstrated value (a developer has refused an
+  unmeetable gate and a self-read model where the orchestrator's own design was
+  the defect).
+
+**Bias:** grind the DIRECT path while the next step is obvious from the last
+result; go DELEGATED the moment the question becomes *"what should we even try?"*
+rather than *"what does this measure?"*. The proposer is for **judgment**, the
+developer for **isolation and parallelism** — invoke each when you need what it
+uniquely provides, not on a schedule.
+
+**What NEVER relaxes on either path** — these are the reason the loop is trusted:
+artifact-then-mark (rule 5); one atomic change per node (rule 4); the leakage
+self-checks and `valid`/`buggy` semantics; the promotion arbiter; `REGISTER` before
+any node exists and `SCORE` from its artifacts; hard rule 9 (**anything submitted
+to the LB is a REGISTERED node first**); and long runs launched `setsid`-detached
+by the orchestrator, never by a worker. Writing the code yourself does **not**
+license skipping the gate you would have made a developer pass — self-built work
+gets checked *harder*, because no second pair of eyes saw it.
+
+The three workers:
+
+- **`kaggle-proposer`** is the **outside eye** — a fresh perspective, not the
+  routine planner. Reads `state.md` (freshly rendered) + the `journal.md` tail +
+  `MEMORY.md` cold, challenges the current framing where the numbers support it,
+  measures what it can at propose time, and writes free-form **ideas**
+  (idea + hypothesis + evidence + rough cost, tagged by well) to
+  `<round_dir>/proposals.md`. It does NOT specify gates/floors/thresholds, does
+  NOT revise through iterations, and does NOT register — its agent file remains
+  the search policy's single home.
+- **`kaggle-proposal-reviewer`** is the **second pair of eyes, once** — a single
+  adversarial pass that verifies load-bearing numbers at source, simulates each
+  bar (which already-rejected artefact would pass it?), checks `parent_src`
+  reachability, leak classes, and redundancy — then writes
+  `<round_dir>/refined.md`: the hardened, buildable spec per surviving proposal
+  (complete gates, own floors, prior art by id, UPPER BOUND labels), one-line
+  DROPs with the killing number, and a build order. The standing-constraints
+  checklist lives in its agent file. `review.md` records the critique;
+  `VERDICT` (`DONE`) is written last.
 - **`kaggle-developer`** builds **and self-gates** one node in isolation (fresh
   context — spec path, folds path, parent code path, and the one-line change,
   explicit). It **builds leak-free AND performant** (fit-inside-fold / no-target-leak
@@ -465,23 +614,29 @@ EVERY proposal → decide. Three workers:
   runs the fast leakage self-checks on its inputs (before training) and outputs
   (after) — its own inline checklist; no check involves a training run — and sets
   `status: valid` (clean) or `buggy` (a leak voids the CV). Prevention *and*
-  detection in one worker. Run in
+  detection in one worker — but **never a waiter**: a projected-long run ends its
+  BUILD job at `ready_to_run` (the orchestrator launches detached and later
+  spawns it again with a GATE job). Run in
   `isolation: worktree` when several nodes build in parallel.
 
-Subagents can't nest, so the **main session** sequences proposer → developer.
-**The propose↔critic loop is a disk contract** (`rounds/round_NNNN/iter_N/`): the
-orchestrator is the foreman — it allocates the round dir (number derived from
-`ls`, never a stored counter), alternately spawns proposer and reviewer, and reads
-ONLY each iteration's one-word `VERDICT` marker (never `proposals.md`/`review.md`
-during the loop — content flows agent→agent through the files; the one exception
-is reading the passing `proposals.md` at the MANUAL gate to render the card). Cap:
-**3 iterations**, enforced by the foreman alone (the reviewer never softens a
-verdict for it). Resume is derived from the round dir's files, like everything
-else. The loop can't pause or submit — the orchestrator registers, builds,
-decides, and (outside `full_auto`) asks the human before submitting. If a developer
-agent re-launches a killed run or exits before its backgrounded train finishes, the
-orchestrator takes the node over directly (owns the marker file) — never re-message a
-zombie agent.
+Subagents can't nest, so the **main session** sequences the round.
+**The round is a single-pass disk contract** (`rounds/round_NNNN/`): the
+orchestrator allocates the round dir (number derived from `ls`, never a stored
+counter), spawns the proposer (→ `proposals.md`), then the reviewer
+(→ `review.md` + `refined.md` + `VERDICT` `DONE` last), then **registers
+directly from `refined.md`** — writing each `node.md` and appending the
+`REGISTER`/`FEATURESET` journal lines itself (the main session is the ONLY
+journal writer now; no worker appends). There is no revision iteration and no
+cap machinery: an unsalvageable proposal is DROPPED by the reviewer with the
+number that killed it, and the idea can return in a later round. Resume is
+derived from the round dir's files (`proposals.md` present but no `VERDICT` ⇒
+spawn the reviewer; `refined.md` + `VERDICT` present ⇒ register). The loop
+can't pause or submit — the orchestrator registers, builds, decides, and
+(outside `full_auto`) asks the human before submitting. Long runs belong to the
+orchestrator by construction ("Long local trainings" above): a developer never
+backgrounds anything, so there are no zombie agents to inherit from — if one
+nevertheless reports a launch, treat it as `buggy` and relaunch from `run.sh`
+yourself. Never re-message a dead agent.
 
 ---
 

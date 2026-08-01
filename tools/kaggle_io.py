@@ -15,7 +15,7 @@ Usage:
     uv run tools/kaggle_io.py submit <slug> --file sub.csv --message "node_7 cv=0.12"
     uv run tools/kaggle_io.py submissions <slug>
     uv run tools/kaggle_io.py leaderboard <slug>
-    uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md \
+    uv run tools/kaggle_io.py budget --ledger comps/<slug>/journal.md \
         --limit <daily_submission_limit from spec.md — the single source of truth>
     uv run tools/kaggle_io.py classify-error --text "403 Forbidden"
     uv run tools/kaggle_io.py --selftest
@@ -34,6 +34,9 @@ from pathlib import Path
 
 # --- error mapping ---------------------------------------------------------
 _ERROR_PATTERNS = [
+    # Must precede rules_not_accepted: this 400 is a *precondition* failure, not
+    # a permissions one, and the two read alike in a hurry.
+    ("notebooks_only", r"only accepts submissions from notebooks"),
     ("rate_limited", r"\b429\b|too many requests|rate.?limit"),
     ("rules_not_accepted", r"\b403\b|forbidden|you must accept|competition rules|not.*participat"),
     ("auth", r"\b401\b|unauthorized|invalid.*credential|could not find kaggle\.json|KAGGLE_KEY"),
@@ -56,6 +59,12 @@ def classify_error(text: str) -> str:
 
 
 _HUMAN_HINT = {
+    "notebooks_only": (
+        "400 FAILED_PRECONDITION — this competition only accepts submissions "
+        "from Notebooks. A CSV upload can never succeed here, on any client "
+        "version. Submit via the kernel path (kaggle-kernel skill) instead. "
+        "No quota is consumed by the rejection."
+    ),
     "rules_not_accepted": (
         "403 — accept the competition rules in the browser (and phone-verify the "
         "account). This is NOT a credentials problem."
@@ -129,18 +138,22 @@ def cmd_passthrough(verb: list[str]) -> int:
 
 
 def read_budget(ledger: str, limit: int) -> dict:
-    """Count today's (UTC) submissions from the append-only markdown ledger.
+    """Count today's (UTC) submissions from the append-only ledger.
 
-    A row counts as a submission if it starts with `| <YYYY-MM-DD`. The count is
-    DERIVED, never stored, so it can't drift across a resume. `limit` comes from
-    spec.md's `daily_submission_limit` — there is deliberately no default here.
+    Two formats count as a submission row (the count is DERIVED, never stored,
+    so it can't drift across a resume):
+      - journal.md event line:  `<today>T..Z  SUBMIT node_NNNN ...`  (current)
+      - legacy submissions.md:  `| <today>T..Z | node | ... |`
+    `limit` comes from spec.md's `daily_submission_limit` — deliberately no
+    default here.
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     used = 0
     p = Path(ledger)
+    journal_submit = re.compile(rf"^{today}T\S+\s+SUBMIT\b")
     if p.exists():
         for line in p.read_text().splitlines():
-            if line.startswith(f"| {today}"):
+            if line.startswith(f"| {today}") or journal_submit.match(line):
                 used += 1
     return {"today": today, "used": used, "limit": limit, "remaining": max(0, limit - used)}
 
@@ -160,6 +173,11 @@ def _selftest() -> int:
     assert classify_error("Could not find kaggle.json") == "auth"
     assert classify_error("404 Not Found") == "not_found"
     assert classify_error("") == "ok"
+    assert classify_error(
+        '{"error":{"code":400,"message":"Submission not allowed:  This '
+        'competition only accepts Submissions from Notebooks.","status":'
+        '"FAILED_PRECONDITION"}}'
+    ) == "notebooks_only"
     assert classify_error("some weird thing") == "unknown"
 
     # backoff retries on 429 then gives up, using an injected no-op sleep
@@ -182,7 +200,7 @@ def _selftest() -> int:
     finally:
         subprocess.run = orig  # type: ignore
 
-    # budget derivation
+    # budget derivation — legacy table rows and journal SUBMIT lines both count
     import tempfile
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with tempfile.TemporaryDirectory() as d:
@@ -194,6 +212,14 @@ def _selftest() -> int:
         )
         b = read_budget(str(led), 5)
         assert b["used"] == 2 and b["remaining"] == 3, b
+        jrn = Path(d) / "journal.md"
+        jrn.write_text(
+            f"{today}T10:00Z  SUBMIT node_1 cv=0.12 lb=pending — first\n"
+            f"{today}T10:05Z  SCORE node_2 status=valid cv=0.11 — not a submission\n"
+            f"2000-01-01T00:00Z  SUBMIT node_0 cv=0.99 lb=1.0 — old\n"
+        )
+        b = read_budget(str(jrn), 5)
+        assert b["used"] == 1 and b["remaining"] == 4, b
     print("kaggle_io selftest OK")
     return 0
 

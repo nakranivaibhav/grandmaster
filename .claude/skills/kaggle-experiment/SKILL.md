@@ -1,194 +1,158 @@
 ---
 name: kaggle-experiment
-description: Stage 4 — the experiment loop: refine N proposals (proposer↔critic through disk contracts in rounds/round_NNNN/), register them, build-and-gate EVERY proposal (kaggle-developer builds leak-free AND self-gates), decide promotion. Use when there's a frozen CV + baseline champion and the human says "run experiments" / "/kaggle-experiment" / "improve the model" / "go auto".
+description: "Stage 4 — the experiment loop: DIRECT-path inline nodes by default (the orchestrator writes, runs, gates, registers); on plateaus a single-pass delegated round (proposer ideas → reviewer's hardening pass → orchestrator registers from refined.md → build → gate → decide). Use when there's a frozen CV + baseline champion and the human says \"run experiments\" / \"/kaggle-experiment\" / \"improve the model\" / \"go auto\"."
 argument-hint: "[interactive|auto] [--n-proposals N]"
 allowed-tools: Bash, Read, Write, Edit, Agent, Skill
 ---
 
-# kaggle-experiment — propose → build all → gate → decide
+# kaggle-experiment — grind direct, delegate for perspective
 
-You are the **orchestrator**. Each round you get a set of proposals, build **every**
-one of them, and promote the best — the **proposer** decides what to try;
-**you build all of it**.
+You are the **orchestrator**. The DIRECT path is the default: you write the
+code, run it, gate it, register it, and append every journal line yourself —
+for any CPU work regardless of duration, including feature engineering (the
+FEATURESET discipline, leak-safety classes and self-checks apply unchanged).
+Delegate only for what a worker uniquely provides:
 
-**Two brains.** The proposer is the **first brain** — all open-ended judgment about
-what to try. You are the **second brain** — referee, historian, and the human's
-gateway: you apply the written rules, verify, and write the round down. You never
-redesign a proposal; anything no rule covers goes to the human or back to the
-proposer. Three workers do the work:
-
-| worker | role |
+| worker | invoke for |
 |---|---|
-| **kaggle-proposer** | proposes N experiments, revises them, and (once confirmed) writes the node records |
-| **kaggle-proposal-reviewer** | critiques the proposals before any code is written |
-| **kaggle-developer** | builds one node AND self-gates it — fold-correct + performant CV, fast leakage self-checks (pre-flight + outputs), gate booleans written, a valid submission (a leak VOIDs the CV) |
+| **kaggle-proposer** | a FRESH PERSPECTIVE — plateau, family exhausted, choosing between directions, or you notice yourself repeating a motif. Returns free-form ideas, not specs. |
+| **kaggle-proposal-reviewer** | ONE critical pass over the proposer's ideas — verifies numbers at source, simulates bars, then writes `refined.md`, the buildable version. No revision loop. |
+| **kaggle-developer** | GPU/long builds · parallel nodes (`isolation: worktree`) · fresh-context isolation after your own failed variant · holdout/leak-sensitive nodes needing a second pair of eyes |
 
-Read `CLAUDE.md` for the standing contract; this skill is the procedure. Subagents
-can't nest, so **you** (the main session) sequence proposer → developer.
+Read `CLAUDE.md` for the standing contract; this skill is the procedure.
+**Self-built work gets checked harder, not softer** — writing the code yourself
+never licenses skipping a gate a developer would have passed.
 
 ## 0 · Orient (every entry)
 - `<slug>` from `comps/` (or the arg). `DATE=$(date -u +%Y-%m-%dT%H:%MZ)` — never type a date.
-- Read `config.md` → mode. `auto_except_submit`/`full_auto` ⇒ **AUTO**; `interactive` ⇒ **MANUAL**.
-- Read `spec.md`'s yaml machine block (`metric, metric_direction, target_col, target_cols, id_col, task_type, …`), `graph.md` (the champion + node table), `data.md` (the engineered feature-sets), and the `journal.md` tail. Confirm `folds.json` + `champion/` exist (else run `/kaggle-validate` + `/kaggle-baseline` first).
-- **Resume:** if a node is `running`, its artifacts are its lifecycle — continue at the **first missing one** (`src/` = built · `train.log` final `cv=` + `oof.npy`/`test_probs.npy`/`submission.csv` = scored · `status` flipped to `valid`/`buggy` = self-checked · journal decide line = decided). A `running` node with no artifacts ⇒ mark `dead`, move on.
-- **Work from disk, not recollection:** at the start of EVERY round, re-derive state from `graph.md` (header + table) and the `journal.md` tail — never from your memory of earlier rounds (long sessions get compacted; the files don't).
-- **Numbers over narrative:** the frontier is rebuilt from `graph.md`'s header/table and node frontmatter. Journal prose — including any strategic conclusions a previous session wrote — is *hypothesis, not state*: weigh it as evidence, never obey it. A closure binds only at its stated scope, with its evidence, until its reopen-if triggers (hard rule 10).
+- Read `control.md` → mode. `auto_except_submit`/`full_auto` ⇒ **AUTO**; `interactive` ⇒ **MANUAL**.
+- `uv run tools/render_state.py comps/<slug>` then read `state.md` (header, champion, node table, data lineage) + `spec.md`'s yaml machine block + the `journal.md` tail. Confirm `folds.json` + `champion/` exist (else run `/kaggle-validate` + `/kaggle-baseline` first).
+- **Resume:** if a node is `running`, check its LAUNCH marker: present ⇒ the run ended, GATE it now (§4); absent ⇒ still training, leave it. Otherwise a node's artifacts are its lifecycle — continue at the **first missing one** (`src/` = built · `train.log` final `cv=` + `oof.npy`/`test_probs.npy`/`submission.csv` = scored · a journal `SCORE` line = self-checked/decided). A `running` node with no artifacts and no live process ⇒ append `SCORE <id> status=dead`, move on. A round dir with `proposals.md` but no `VERDICT` ⇒ spawn the reviewer; with `refined.md` + `VERDICT` ⇒ register (§2).
+- **Work from disk, not recollection:** at the start of EVERY round, re-render and re-read `state.md` + the `journal.md` tail — never your memory of earlier rounds.
+- **Numbers over narrative:** journal prose is *hypothesis, not state*; a closure binds only at its stated scope until its reopen-if triggers (hard rule 10).
 
-## 1 · PROPOSE — the disk-contract refine loop (`experiment_plan` gate)
-The proposer↔critic loop runs through **disk contracts** in the round dir — you are
-the **foreman**: you sequence spawns and read ONLY the `VERDICT` markers (one word
-each), never `proposals.md`/`review.md` during the loop. The content flows
-agent→agent through the files.
+## 1 · DIRECT path (the default loop)
+While the next step is determined by the last measurement, just do it:
+- register the node inline (§2's template), build it, run it (≲15 min inline;
+  longer ⇒ write `run.sh` and launch `setsid`-detached per CLAUDE.md "Long local
+  trainings"), gate it (§4's checks, run by you), append `SCORE`, decide (§6).
+- probes stay probes (one `PROBE` line each, `probes/` dir, never nodes).
+- an exploration line may own `lines/<name>/` with its own scripts + log.
 
-**Bootstrap the round (foreman):** derive the next round number from
-`ls comps/<slug>/rounds/` (max NNNN + 1, zero-padded; derived, never a stored
-counter) and `mkdir -p` the dir. Then loop, **max 3 iterations** — you are the only
-enforcer of the cap:
+Go delegated the moment the question becomes *"what should we even try?"*
+rather than *"what does this measure?"* — or when you catch yourself proposing
+the third variant of the same motif.
 
-1. Spawn **kaggle-proposer** (PROPOSE on iter 1, REVISE after) with `slug` +
-   `round_dir` + `n_proposals` (**3** default). It creates `iter_N/` and writes
-   `iter_N/proposals.md` (REVISE reads the prior `review.md` from disk itself).
-2. Spawn **kaggle-proposal-reviewer** with `slug` + `round_dir`. It writes
-   `iter_N/review.md`, then `iter_N/VERDICT` last (`PASS` | `REVISE`).
-3. Read `iter_N/VERDICT` — the ONLY loop-control input. `PASS` → done, the passing
-   `iter_N/proposals.md` is the round's set. `REVISE` and N < 3 → go to 1.
-   `REVISE` and N == 3 → cap hit: proceed with the reviewer-accepted subset (the
-   REGISTER step filters via the last `review.md`); in MANUAL, surface the
-   still-blocked ones on the card. A missing/malformed `VERDICT` or `proposals.md`
-   = a failed subagent — respawn that role once, then stop and tell the human.
+## 1b · DELEGATED round (single pass, no iterations)
+1. **Bootstrap:** next round number from `ls comps/<slug>/rounds/` (max NNNN + 1,
+   zero-padded; derived, never stored), `mkdir -p` the dir.
+2. Spawn **kaggle-proposer** with `slug` + `round_dir` + `n_proposals` (a
+   ceiling, default 3) + optionally the specific question you're stuck on. It
+   writes `<round_dir>/proposals.md` (ideas: hypothesis + evidence + rough cost)
+   and any propose-time probe scripts beside it.
+3. Spawn **kaggle-proposal-reviewer** with `slug` + `round_dir`. It writes
+   `review.md` (the critique), `refined.md` (the hardened, buildable specs +
+   one-line DROPs + build order), then `VERDICT` (`DONE`) last.
+4. Read `refined.md` and **register every spec in it** (§2). The reviewer
+   prunes — you don't. A missing/malformed file = a failed subagent — respawn
+   that role once, then stop and tell the human.
+- **AUTO:** straight to §2/§3 in the reviewer's build order.
+- **MANUAL:** render the Proposal Card from `refined.md`, `touch
+  comps/<slug>/.waiting-on-human`, **wait**; register the accepted subset.
 
-**Resume (derived from the dir, no counter):** last `iter_N` has `proposals.md`
-but no `VERDICT` → respawn the reviewer; `VERDICT: REVISE` and N < 3 → spawn the
-proposer (REVISE); `VERDICT: PASS` → the loop is already done. An `iter_4/` on
-disk is a foreman bug — flag it in the journal.
+## 2 · REGISTER — you write the nodes (main session is the only journal writer)
+For each spec (from `refined.md`, or your own DIRECT-path successor): reserve
+the next zero-padded id (max in `state.md` + 1, re-render first if stale),
+`mkdir -p comps/<slug>/nodes/node_NNNN/src`, write `node.md` — frontmatter
+(`id · desc ≤8 words · op · parents · family · uses_data · status: proposed`,
+`cv/sem/folds/lb` null) + a free-form plan body handing a fresh-context
+developer the ONE atomic change, the hypothesis, the target, the gates with
+directions, and every reference worth READING (never which files/functions to
+write). A NEW feature-set's full recipe lives in the producing node's plan.
+Then append, artifact-then-mark, `$DATE` from the shell:
+- `$DATE  FEATURESET fs_<name> class=<stateless|fit_in_fold> from=<base|fs_x> producer=node_NNNN — <what>` (if new)
+- `$DATE  REGISTER node_NNNN op=<op> parents=[…] family=<f> well=<well> uses_data=[…] round=<round|inline> — <desc>`
+For a delegated round also append ONE `ROUND-OPEN round_NNNN nodes=[…] — <one-line rationale each>`. Re-render and check no RENDER ERRORS.
 
-- **AUTO:** take the passing set straight to §2.
-- **MANUAL:** NOW read the passing `proposals.md` (gate-time is the one place you
-  read it — to render the card, never to steer the loop), render the **Proposal
-  Card** (below) and **wait**. You are the director's gateway — the human accepts
-  some, discards some, or redirects. On a redirect, spawn **kaggle-proposer**
-  (REVISE) with the human's direction (this may add an iter past the cap — the cap
-  bounds the critic loop, not the human) and re-run the reviewer + re-card. On
-  approval, go to §2 with the accepted set.
+## 3 · BUILD — inline by default, developers for their niche
+DIRECT-path nodes: build in the main session. Delegated GPU/parallel/isolation
+nodes: spawn **kaggle-developer** (BUILD job) with the node dir (`node.md` IS
+the spec), `spec.md`, `folds.json`, `parent_src`, metric+direction, and the
+parent per-fold scores. Parallel independent nodes ⇒ one message, worktrees;
+GPU nodes ⇒ serialize.
+- **Short run (≲15 min projected):** run inline (either path), self-gate, score.
+- **Long run:** the builder (you or the developer) writes
+  `nodes/node_NNNN/run.sh` and STOPS (`ready_to_run`). YOU launch it
+  `setsid`-detached through the watchdog (never via background-mode Bash); the
+  wake is a marker-waiter (`until [ -f "$DONE" ]; do sleep 30; done`,
+  background-mode Bash) or Codex `--on-done`. Append the `LAUNCH` line. While
+  it trains: hard rule 11 — no polling, no chatter.
 
-## 2 · REGISTER — write the confirmed nodes
-Spawn **kaggle-proposer** (REGISTER) with `slug` + `round_dir` (+ the human's
-accept/discard selection, if MANUAL gated). It reads the last `iter_N/proposals.md`
-+ `review.md` + `VERDICT` from disk — on a cap-hit `REVISE` it registers only the
-reviewer-accepted proposals. It reserves each
-node id, writes `nodes/node_NNNN/node.md` (status `proposed`, the `## plan`, the
-`uses_data` field), adds each to `graph.md`, and updates `data.md` (new/reused
-feature-sets). You never hand-write node.md — the proposer owns it. It's one
-sequential call, so the parallel builders in §3 never collide on `graph.md`/`data.md`.
+## 4 · GATE — on each run's completion wake (inline by default)
+Marker present ⇒ tail `train.log` filtered for
+`cv=|Traceback|Error|Killed|OOM|WATCHDOG_STALL`, then run the gate YOURSELF:
+the node's output self-checks (OOF coverage — every train row exactly once, no
+NaN; prediction-distribution sanity; submission schema via
+`tools/validate_submission.py`; cv-too-good judgment vs parent), fill
+`node.md`'s result fields, append `SCORE`. Spawn a developer GATE job only when
+the node is holdout/leak-sensitive or the output checks themselves need fresh
+eyes. Exit 124 / `WATCHDOG_STALL` / traceback ⇒ `status=buggy`; any
+error-severity leak ⇒ `buggy` with `LEAK:` in the note (the CV does NOT count).
 
-Then append ONE `ROUND OPEN` line to `journal.md`
-(`$DATE  ROUND OPEN node_A..node_D — <op·well·one-line rationale each>`) — the
-round's plan lives in the journal + the node records.
+**Report contract (delegated builds):** every developer report ends with one
+`RESULT` line (`RESULT node=… cv=… sem=… folds=[…] status=… runtime=… note=…`).
+Carry ONLY that line into the round's state; on a mismatch with `node.md`,
+trust `node.md` + the artifact and say so.
 
-## 3 · BUILD-AND-GATE ALL — hand every node to kaggle-developer
-Build **every** registered node: spawn the developers **in parallel** when the nodes
-are independent (one `Agent` call each, in one message), or **sequentially** if
-compute/GPU is tight (esp. GPU nodes — serialize them; one 32 GB card can't run two
-big-model nodes at once). Hand each developer: its node dir — **`node.md`'s plan is
-the full spec** (the change, the free-form context, the references to read) — plus
-`spec.md`, `folds.json`, its `parent_src`, metric+direction, and the **baseline +
-parent per-fold scores** (for the cv-too-good judgment). The developer
-runs its **pre-flight leakage checks** (seconds, before any training), writes a
-fold-correct, **performant** `solution.py` (it times one unit before the full run —
-never an unprofiled multi-hour job), the per-fold CV into `node.md`, `oof.npy` +
-`test_probs.npy` + `submission.csv`, **then self-gates** on the outputs (its own
-inline checklist — never a training-run check) and sets `status: valid|buggy`. A
-traceback ⇒ `status: buggy` (propose a `debug` node next round); any
-error-severity leak ⇒ `status: buggy` with `LEAK:` in its note (the CV does
-**not** count). One worker builds and proves.
+## 5 · SCORE — append the event
+`$DATE  SCORE node_NNNN status=<s> cv=<f> sem=<f> folds=[…] — <note>`, re-render.
+A `buggy` node's CV does not count.
 
-**Report contract:** every developer's report ends with a single `RESULT` line
-(`RESULT node=… cv=… sem=… folds=[…] status=valid|buggy runtime=…
-note=…` — defined in `kaggle-developer.md`; a leak shows as `status=buggy` with
-`LEAK:` in the note). Carry ONLY that line into the round's state — never the
-report prose; the detail lives in `node.md` + `train.log` if you need it later.
+## 6 · DECIDE — promote rule + the historian pass
+**Promote rule (math, not judgment — canonical gate in CLAUDE.md "Budget &
+deadline"):** leak-clean CV win beyond 2·sem promotes directly; anything closer
+arbitrates via `tools/pred_diagnostic.py` paired bootstrap
+**P(candidate > champion) ≥ 0.90** (report the bootstrap's own control p95 at
+the same n where the statistic is known not to concentrate); a
+McNemar-significant fix-block that holds on the holdout is keep/combine
+material at flat CV. **Mirage guardrail:** a working-CV gain that fails the
+holdout is killed. On promote: byte-copy `src/` + `submission.csv` →
+`champion/`, update `champion/README`, append `PROMOTE` (the replay demotes the
+old champion). On reject: touch nothing.
 
-> If a developer agent ever **re-launches a run you killed** or exits before its
-> backgrounded train finishes, take the node over directly (the orchestrator owns
-> the marker file): kill stray processes, attach your own waiter, and on completion
-> write the CV + run the gate yourself. Don't re-message a zombie agent.
-
-## 5 · SCORE — confirm the CV
-Parse each developer's `RESULT` line (one per node — your round table). Confirm it
-agrees with `node.md` (the developer wrote `cv = mean`, `sem = std(ddof=1)/sqrt(k)`,
-`folds`, `status`), then fill the node's `cv` cell + Mermaid label in `graph.md`
-from it. On a mismatch, trust `node.md` (the artifact) and say so. A `buggy`
-node's CV does not count — leaked or crashed alike.
-
-## 6 · DECIDE — apply the promote rule, then write the round down (the historian pass)
-**Promote rule (math, not judgment — the canonical gate lives in CLAUDE.md
-"Budget & deadline"; apply it, don't re-derive it).** For each valid node vs the
-champion (from `champion/README` / `graph.md`), in the spec's direction:
-- **Screen with fold-noise:** a leak-clean CV win **beyond 2·sem** (LB-consistent
-  if the lineage has a submitted LB) promotes directly.
-- **Arbitrate anything closer** with `tools/pred_diagnostic.py`: promote on paired
-  bootstrap **P(candidate > champion) ≥ 0.90**; a McNemar-significant fix-block
-  that also holds on the holdout makes it a keep/combine candidate even at flat
-  global CV.
-- **Mirage guardrail:** a gain on working-CV that does not hold on the holdout is
-  killed; any sub-2·sem promotion is submit-gated on an LB probe before it counts
-  as champion/finals material.
-On promote: byte-copy (cp, never symlink) `src/` + `submission.csv` → `champion/`,
-update `champion/README`. On reject: leave `champion/` untouched.
-
-**The four writes — ONE pass, ALL finished before the next round starts** (nothing
-important may exist only in chat):
-1. **`node.md`** — the final `status` of each node (valid / dead / champion — and
-   the demoted prev champion's). The journal's decide line is the decide record.
-2. **`graph.md`** — cv cells, and the champion crown moved in all three places (set
-   the new node AND demote the old: frontmatter status `champion` ↔ `valid (prev
-   champ)`, Mermaid `:::champ` add ↔ remove, table status cell, header `champion:`
-   line). Then verify the invariant: exactly ONE champion — the same node in
-   frontmatter, Mermaid, table, and header.
-3. **`journal.md`** — ONE distilled line per node/probe/decision (facts + numbers:
-   what happened and what it showed), then a `ROUND CLOSE` line. A dead end is a
-   scoped closure — *tried X, measured Y, reopen-if Z* — never a run-level verdict
-   ("ceiling/exhausted/impossible" are banned, hard rule 10). This is what the
-   proposer eats next round — hand it evidence to weigh, not conclusions to obey.
-4. **`MEMORY.md`** — write-on-event: if this round produced a promotion or an
-   instructive null, append the one-line lesson NOW (never batched later) — a
-   conditional fact with its scope, never a forecast.
+**The decide writes — ONE pass before anything else starts:**
+1. `journal.md` — `NOTE`/`PROBE` lines worth keeping (scoped closures only;
+   banned vocabulary stays banned), then `ROUND-CLOSE` for delegated rounds.
+2. re-render; check no RENDER ERRORS and the expected champion.
+3. `MEMORY.md` — write-on-event, one line, never batched later.
 
 ## 7 · SUBMIT (gated)
-Submit only a node whose CV beats the **last submitted CV** by more than fold-noise
-(2·sem — the canonical definition in CLAUDE.md "Budget & deadline") — never spend a
-slot to A/B on the LB. Validate the file and check budget first:
+Submit only a node whose CV beats the **last submitted CV** by more than
+fold-noise (2·sem) — never spend a slot to A/B on the LB. Validate + budget:
 ```bash
 lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/<slug>/spec.md)
-uv run tools/kaggle_io.py budget --ledger comps/<slug>/submissions.md --limit "$lim"
+uv run tools/kaggle_io.py budget --ledger comps/<slug>/journal.md --limit "$lim"
 ```
-- **MANUAL / `auto_except_submit`:** render the SUBMIT Decision Card and **wait** — the human owns every real submission. Run `/kaggle-submit <slug> node_NNNN`.
-- **`full_auto` + budget:** `/kaggle-submit <slug> node_NNNN`, append the ledger row, poll the public score.
+- **MANUAL / `auto_except_submit`:** SUBMIT Decision Card, sentinel, **wait**;
+  then `/kaggle-submit <slug> node_NNNN`.
+- **`full_auto` + budget:** `/kaggle-submit <slug> node_NNNN`.
 
-## Proposal Card (manual `experiment_plan` gate)
+## Proposal Card (manual gate, from refined.md)
 ```
-📋 experiment plan · <n> proposals for <slug>
+📋 experiment plan · <n> specs for <slug>
 What's going on:   <one plain sentence on where the search stands>
-Proposals:         1. <op> <desc> — <why> (vs <parent> cv <x>)
+Specs:             1. <op> <desc> — <why> (vs <parent> cv <x>)
                    2. …
-                   3. …
-Critic's take:     <one line from the proposal-reviewer>
-Cost:              <~mins · cpu/gpu each · ALL will be built>
-Your call:         [Approve all] [Accept some / discard some] [Redirect: try X instead] [Tell me more]
+Dropped:           <k> ideas, each with the number that killed it
+Cost:              <~mins · cpu/gpu each>
+Your call:         [Approve all] [Accept some] [Redirect] [Tell me more]
 Autonomy: <mode> — waiting
 ```
 
-## Modes
-- **MANUAL (interactive)** — §1 refine, render the Proposal Card, **wait**. On
-  approval, §2 register and §3–§6 build/gate/decide the accepted node(s), then stop.
-  Every submission is human-gated (§7).
-- **AUTO (`auto_except_submit` / `full_auto`)** — §1→§6 with no pause: refine,
-  register, build EVERY proposal, gate, decide. Only §7 submit stops (queue + ask in
-  `auto_except_submit`; spend a slot in `full_auto`). Re-enter for the next round.
-
 ## Invariants
-- Build EVERY confirmed proposal — the proposer prunes, the orchestrator doesn't.
+- Build every spec in `refined.md` — the reviewer prunes, you don't.
 - One atomic change per node; every CV delta is attributable.
 - Leakage voids the score; a leaky node never promotes.
-- Trust CV over the LB; a CV↔LB gap is a diagnostic to surface, not an auto-demote.
-- Artifact-then-mark; all dates from `date -u`; all scripts via `uv run`.
+- Trust CV over the LB; a CV↔LB gap is a diagnostic, not an auto-demote.
+- Artifact-then-mark; dates from `date -u`; all scripts via `uv run`.
+- The main session is the only journal writer.

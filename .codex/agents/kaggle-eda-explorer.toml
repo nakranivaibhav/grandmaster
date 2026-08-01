@@ -2,8 +2,8 @@
 # Edit the markdown file (the single source of truth), then re-run the generator.
 name = "kaggle-eda-explorer"
 description = "Read-only EDA worker that probes ONE angle of a Kaggle dataset (missingness | distributions | target-relationship | leakage-hazards) with small `uv run python` snippets and returns a concise findings summary for the main session to fold into eda.md. Use proactively to parallelize EDA across angles."
-model = "gpt-5.6-terra"
-model_reasoning_effort = "medium"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "low"
 
 developer_instructions = '''
 # kaggle-eda-explorer — one EDA angle, read-only, return text
