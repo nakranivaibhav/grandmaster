@@ -478,6 +478,12 @@ don't retry around them:
   creds** — the #1 misdiagnosis. `kaggle_io.py classify-error` maps it.
 - **429** → exponential backoff (handled in `kaggle_io.py`); never tight-poll.
 - Competition downloads are **zipped** — unzip after download.
+- **Notebooks-only competitions are a different submission path, not a variant of the
+  same one** (`/kaggle-submit` §2). Kaggle reruns your notebook against a **hidden test
+  set** with internet disabled, so stored predictions are worthless — ship the fitted
+  **state** as a private Dataset and do only feature-engineering + inference in-kernel;
+  never retrain there. A `400 FAILED_PRECONDITION` on a file upload is the signal, and
+  burns no quota.
 - **The daily submission limit varies per comp** — kaggle-start asks the human and
   records it in `spec.md` (`daily_submission_limit`); never assume 5. A
   server-rejected submission does **not** burn the quota — safe to resubmit.

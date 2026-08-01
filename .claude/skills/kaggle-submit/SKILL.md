@@ -1,195 +1,154 @@
 ---
 name: kaggle-submit
-description: Budget-gated Kaggle submission with async public-score poll — computes today's budget from the journal's SUBMIT lines against spec.md's daily_submission_limit, blocks past the limit, renders the SUBMIT card, submits, polls the score, then appends the SUBMIT/LB journal lines with the CV↔LB gap. Use when a valid node's CV beats the last-submitted CV by more than fold-noise (2·sem), or a stage reaches the `submit` gate.
+description: "Spend a submission slot. Handles BOTH competition types: a plain CSV upload, and the notebooks-only kind where Kaggle reruns your notebook against a hidden test set with internet disabled — ship fitted state as a Dataset, feature-engineer + infer on the test set in-kernel, never retrain. Use when a valid node is ready to go to the leaderboard, or a stage reaches the `submit` gate."
 argument-hint: <slug> <node_id>   e.g. titanic node_0007
 allowed-tools: Bash, Read, Write, Edit
 ---
 
-# /kaggle-submit — budget-gated submit + async poll
+# /kaggle-submit — spend one slot, correctly for the competition's type
 
-Spend ONE of the day's submission slots (limit = `daily_submission_limit` in
-`spec.md` — the single source) on the single best-justified node, then poll for
-its public score. **CV decides WHAT to submit; the LB is never an A/B target**
-(Hard rule 6). A slot only goes to a node that beats the last-submitted CV by
-more than fold-noise (2·sem — CLAUDE.md "Budget & deadline").
+Resolve `<slug>` and `<node_id>` from args (no node id ⇒ the champion). All paths
+repo-relative. `DATE=$(date -u +%Y-%m-%dT%H:%MZ)` — never type a date.
 
-Resolve `<slug>` and `<node_id>` from args. If `<node_id>` is omitted, use the
-current champion (`comps/<slug>/champion/`). All paths below are repo-relative.
+## 0 · The reflex checklist (do it, don't narrate it)
 
----
+- Node is `status: valid` with non-null `cv` — a node that hasn't cleared the leakage
+  self-checks can never be submitted (hard rule 3).
+- `uv run tools/validate_submission.py --submission … --sample … --id "$(grep -E '^id_col:' comps/<slug>/spec.md | awk '{print $2}')"` — a malformed CSV wastes a slot.
+- Budget, derived not stored:
+  `uv run tools/kaggle_io.py budget --ledger comps/<slug>/journal.md --limit "$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/<slug>/spec.md)"`. Zero remaining ⇒ block, say when 00:00 UTC frees the next.
+- CV gate: beat the last `SUBMIT` line's `cv=` by more than 2·sem, in the metric's
+  improving direction. Never spend a slot to A/B on the LB (hard rule 6). Carve-outs,
+  named in the card: final-ensemble submits, and a human-directed `PROBE`.
+- Gate the human per `control.md` (`interactive` / `auto_except_submit` wait at the
+  SUBMIT card + `.waiting-on-human`; `full_auto` proceeds). Surface a cv-too-good jump
+  before spending, regardless of mode.
 
-## 0 · Preconditions (read, don't retry around the human gates)
+## 1 · Which kind of competition is this? Decide BEFORE building anything
 
-- `comps/<slug>/nodes/<node_id>/submission.csv` exists, and its journal `SCORE`
-  line (cross-check `node.md`) shows `status: valid` (or a `PROMOTE` made it
-  champion) and a non-null `cv` (i.e. it was built, scored, and self-checked clean). A node that hasn't cleared the
-  leakage self-checks **cannot** be submitted — leakage voids the score (Hard
-  rule 3). If `status` is anything else, or `cv` is null, stop and say so.
-- `KAGGLE_USERNAME` / `KAGGLE_KEY` are in the env (the tool fails with a clear
-  message otherwise). A 403 here means **rules-not-accepted / unverified**, not
-  bad creds — surface the human gate, don't retry.
+| kind | how you submit |
+|---|---|
+| **file** | upload `submission.csv` — `uv run tools/kaggle_io.py submit <slug> --file … --message …` |
+| **notebooks-only** | §2 — a CSV upload can NEVER succeed, on any client version |
 
-Validate the file before spending anything on it (a malformed CSV wastes a slot):
+A `400 FAILED_PRECONDITION` on a file upload IS the notebooks-only signal
+(`tools/kaggle_io.py classify-error` maps it to `notebooks_only`). It burns no quota.
+`spec.md` should record the kind at kaggle-start; if it doesn't, one rejected upload
+tells you for free.
+
+## 2 · Notebooks-only: ship STATE, never predictions
+
+**The thing that breaks naive attempts:** Kaggle reruns your notebook against a
+**hidden test set** that is larger/smaller/different from the public slice. So stored
+per-row predictions are worthless — the hidden rows are new. What ships fine is trained
+**state**. Only feature engineering and inference must happen in-kernel.
+
+**Never retrain in the kernel.** It is the difference between a ~40-minute rerun and a
+timeout, and a refit inside the kernel is unverifiable — you cannot see its numbers.
+
+### 2a · Export the fitted state to a private Dataset
+Every model, imputer, encoder, scaler, meta, plus the feature/clean modules the pickles
+need, into one dir with `dataset-metadata.json` (`{title, id: "<user>/<name>", licenses}`):
 ```bash
-slug=<slug>; node=<node_id>
-ndir=comps/$slug/nodes/$node
-id_col=$(grep -E '^id_col:' comps/$slug/spec.md | awk '{print $2}')   # from spec machine block
-uv run tools/validate_submission.py \
-  --submission $ndir/submission.csv \
-  --sample     comps/$slug/data/sample_submission.csv \
-  --id         "${id_col:-id}"
+uv run --no-sync python -m kaggle datasets create  -p <node>/dataset --dir-mode zip   # first time
+uv run --no-sync python -m kaggle datasets version -p <node>/dataset -m "<what>" --dir-mode zip
+uv run --no-sync python -m kaggle datasets status <user>/<name>                        # -> ready
 ```
-Non-zero exit ⇒ the CSV is malformed; fix the node, do **not** submit.
+Attach several datasets when state splits across nodes — locate each **by content**
+in-kernel (a marker filename), never by a hard-coded mount path.
 
----
+### 2b · One serve core, embedded verbatim
+Put the whole inference path in ONE module (`serve_core<NNNN>.py`): load artifacts →
+per-test-well features → predict → write `submission.csv`. Embed it into the notebook
+**base64** (raw-string embedding breaks on backslashes) and write it out before import,
+so the bytes Kaggle runs are the bytes you verified. Assert loudly at load: feature-list
+agreement, model feature counts, round counts, no `.fit`/`.train` anywhere.
 
-## 1 · Budget — derived from UTC timestamps, never a counter
+### 2c · Verify locally BEFORE pushing — and know your noise floor
+Run the serve core against the local test slice and diff **layer by layer**, tightest
+first. The lesson that cost this repo a round: an end-to-end diff can be legitimately
+loose (an unseeded RNG in feature-building, non-bit-reproducible GPU fits), so a loose
+end-to-end number proves nothing on its own — **isolate the deterministic channels and
+require them bit-exact**, then check the end-to-end residual sits at the *already
+established* floor rather than assuming it's fine.
+- feed cached/stateless inputs ⇒ each deterministic channel must reproduce its
+  reference to ~1e-12 (or exactly 0.0);
+- compare the end-to-end residual against a PRIOR verified run's residual, not against zero.
 
+### 2d · The kernel contract
+`kernel-metadata.json`: `is_private: true`, `competition_sources: ["<slug>"]`,
+`enable_internet: false`, `enable_gpu` only if inference needs it, `dataset_sources: [...]`.
+The notebook must:
+- resolve the input tree by walking `/kaggle/input` (mounts move);
+- wrap every stage so a failure prints a traceback and the run continues;
+- **always emit a valid `submission.csv`** — per-item try/except plus an unconditional
+  final fallback stage. A hidden-rerun exception yields an empty score and a dead slot;
+- print a heartbeat with a live ETA, and the per-item cost.
+
+Project the hidden cost from the public pass: measure s/item locally, apply the
+measured local→Kaggle penalty (this repo has seen 2.7×–4.8× on 4 cores), multiply by the
+estimated hidden item count.
+
+### 2e · Push, read the public pass, THEN submit
 ```bash
-lim=$(grep -oP 'daily_submission_limit:\s*\K\d+' comps/$slug/spec.md)
-[ -n "$lim" ] || { echo "spec.md lacks daily_submission_limit — kaggle-start must ask the human; stop"; }
-uv run tools/kaggle_io.py budget --ledger comps/$slug/journal.md --limit "$lim"
-# prints:  <YYYY-MM-DD>  <used>/<lim> used  (<remaining> remaining, resets 00:00 UTC)
+set -a && . ./.env && set +a && : "${KAGGLE_KEY:=$KAGGLE_TOKEN}" && export KAGGLE_KEY
+uv run <node>/kernel/build_<node>_kernel.py                  # regenerate from the serve core
+uv run --no-sync python -m kaggle kernels push   -p <node>/kernel
+uv run --no-sync python -m kaggle kernels status <user>/<kernel-slug>   # RUNNING -> COMPLETE
+uv run --no-sync python -m kaggle kernels output <user>/<kernel-slug> -p <node>/kernel_output
 ```
-- `remaining == 0` ⇒ **the daily limit is spent — block**. Print when the next
-  slot frees (`00:00 UTC`) and stop. Do not call submit.
-- The count is recomputed from the journal's `SUBMIT` lines every time, so it
-  can't drift across a resume. Never store or trust a mutable counter.
-
----
-
-## 2 · CV gate — only submit a node that beats the last submitted CV
-
-The last submitted CV is the `cv=` field of the **last `SUBMIT` line** in
-`comps/$slug/journal.md` (no SUBMIT lines ⇒ this is the first/baseline submit,
-which always passes). **Fold-noise = 2·sem** of the candidate's CV (the `sem:`
-field in its `node.md`) — the one canonical definition, same bar as the promote
-gate (CLAUDE.md "Budget & deadline").
-
-Submit only if, **in the official metric's improving direction**:
+**Read the log before spending the slot**: every stage `ok`, row count == sample
+submission, 0 missing, 0 fallback, sane value range, the shipped state actually mounted.
+Then submit the KERNEL — `kernel_version` MUST be explicit (`None` returns a 403 that is
+*not* the rules/verification 403; it costs no quota):
+```bash
+uv run --no-sync python - <<'PY'
+from kaggle.api.kaggle_api_extended import KaggleApi
+api = KaggleApi(); api.authenticate()
+print(api.competition_submit_code(file_name="submission.csv", message="<node cv=…>",
+      competition="<slug>", kernel="<user>/<kernel-slug>", kernel_version=<N>))
+PY
 ```
-| candidate_cv − last_submitted_cv |  >  2·sem      (the fold-noise band)
+
+**Hard rule 9 still binds:** the kernel is a REGISTERED node (op `improve`, family
+`serving`, parents = the node whose function it serves), with `cv`/`sem`/`folds`
+inherited and no new metric. Register it before it exists on Kaggle.
+
+## 3 · Mark it, after the fact (artifact-then-mark)
+
+Only once the submit returned exit 0 / a ref:
+```bash
+printf '%s  SUBMIT %s cv=%s lb=%s — %s\n' "$DATE" "$node" "$cv" "${lb:-pending}" "$note" >> comps/<slug>/journal.md
 ```
-If the candidate is within fold-noise of what's already on the LB, **do not
-spend a slot** — it's an LB A/B, which Hard rule 6 forbids. Say so and stop.
-(Allowed exceptions, noted explicitly in the card: end-of-comp final-ensemble
-submits, and a **human-directed LB probe** — logged with `PROBE` in the ledger's
-note column, kept to ~2/day.)
+Scoring is async and a notebooks-only rerun takes as long as the rerun takes — poll
+`competitions submissions` detached with a marker-waiter, spaced, never tight.
+**Match the status on the row carrying YOUR ref** — a listing-wide `grep COMPLETE`
+matches some older submission's row and fires the marker instantly (this bug has fired
+here once). When the score lands, append (never edit) the backfill and set `node.md`'s
+`lb`, then re-render:
+```bash
+printf '%s  LB %s lb=%s — async score landed\n' "$DATE" "$node" "$lb" >> comps/<slug>/journal.md
+uv run tools/render_state.py comps/<slug>
+```
+Log a CV↔LB gap as a **diagnostic** — never an auto-demote (hard rule 6). Submitting
+does not re-rank the champion; `PROMOTE` lines do.
 
-Also honor the **CV-too-good tripwire**: if this node's CV jumped implausibly vs
-its parent, that's flagged for human eyes *before* a slot is spent — surface it
-in the card rather than auto-submitting, regardless of autonomy mode.
+## Errors worth classifying, not retrying
+`uv run tools/kaggle_io.py classify-error --text "<stderr>"` →
+`notebooks_only` (see §2) · `rules_not_accepted` **403 = accept rules / phone-verify in
+the browser, NOT bad creds** — the #1 misdiagnosis · `auth` = env vars · `rate_limited`
+429 = already backed off. A server-rejected submission does **not** burn quota.
 
----
-
-## 3 · SUBMIT Decision Card (gated except `full_auto`)
-
-The `submit` gate is human in `interactive` and `auto_except_submit`; only
-`full_auto` proceeds without waiting (read the mode from `comps/$slug/control.md`).
-While waiting, `touch comps/$slug/.waiting-on-human` (remove it on the answer).
-This costs **1 of the daily limit**.
-
+## SUBMIT Decision Card
 ```
 📋 submit
-What's going on:   Node <node_id> (<one-line change>) beats the last submitted CV — spending a slot to see it on the public board.
-Found / propose:   • candidate CV <cv> ± <sem> vs last submitted <last_cv> (Δ <delta>, > 2·sem fold-noise)
-                   • <used>/<lim> used today, <remaining> remaining (resets 00:00 UTC)
-                   • file validates against sample_submission; leakage self-checks clean
+What's going on:   Node <id> (<one-line change>) beats the last submitted CV — spending a slot.
+Found / propose:   • CV <cv> ± <sem> vs last submitted <last_cv> (Δ <d>, > 2·sem)
+                   • <used>/<lim> used today, <remaining> left (resets 00:00 UTC)
+                   • <file validates | kernel public pass clean: stages ok, N rows, 0 fallback>
                    • <deadline> — <days_left> days left
 Why:               CV cleared the fold-noise band; the LB is the OOD check, not the selector.
-Cost:              ~1–2 min · no compute · 1 of the daily <lim> submissions
+Cost:              <~mins> · <no compute | one kernel rerun> · 1 of the daily <lim>
 Your call:         [Approve] [Change something] [Skip] [Tell me more]
 Autonomy: <mode> — <waiting | proceeding>
 ```
-Compute `<days_left>` and every date from the shell (`date -u`), never memory:
-```bash
-deadline=$(grep -E '^deadline:' comps/$slug/spec.md | awk '{print $2}')
-days_left=$(( ( $(date -u -d "$deadline" +%s) - $(date -u +%s) ) / 86400 ))
-```
-In `interactive` / `auto_except_submit`: **wait** here. Proceed only on approve
-(or in `full_auto`).
-
----
-
-## 4 · Submit (a server-rejected submit does NOT burn the quota)
-
-```bash
-msg="$node cv=$cv"
-uv run tools/kaggle_io.py submit $slug --file $ndir/submission.csv --message "$msg"
-```
-- Exit 0 ⇒ accepted by the server, now scoring asynchronously → go poll.
-- Non-zero ⇒ classify before reacting; a **server-rejected** submission is safe
-  to resubmit (it didn't burn the slot):
-  ```bash
-  uv run tools/kaggle_io.py classify-error --text "<the stderr line>"
-  ```
-  `rules_not_accepted` (403) ⇒ surface the human browser/verify gate, stop.
-  `rate_limited` (429) ⇒ already backed off by the tool; if still failing, wait
-  and retry once. `auth` ⇒ env vars; stop. Only append the `SUBMIT` journal line
-  **after** an accepted submit (exit 0) — never on a rejected one.
-
----
-
-## 5 · Poll the async public score (event-driven, no tight loop)
-
-Scoring is async. Poll `submissions` with a marker-file waiter so you wake when a
-public score appears, not on a timer — and never tight-poll (the tool backs off
-429s, but you should still space reads):
-```bash
-DONE=/tmp/${slug}_${node}_scored.done ; rm -f "$DONE"
-(
-  for i in $(seq 1 20); do                       # ~ up to 10 min, 30s spacing
-    out=$(uv run tools/kaggle_io.py submissions $slug)
-    # newest row first; "complete" + a numeric publicScore means it finished
-    echo "$out" | grep -iE 'complete' | grep -qE '[0-9]' && { echo "$out" > /tmp/${slug}_${node}_sub.txt; break; }
-    sleep 30
-  done
-  touch "$DONE"
-) &
-# wait on [ -f "$DONE" ]; then read /tmp/${slug}_${node}_sub.txt for the public score
-```
-Pull the **public score** for *this* submission (match the `$msg` / newest row)
-into `lb`. If still `pending` after the window, record `lb=pending` and note that
-the row will be backfilled on the next poll — don't block the loop.
-
----
-
-## 6 · Append the SUBMIT journal line — EXACT format the budget reader counts
-
-The `budget` subcommand counts a line iff it starts with today's UTC date
-followed by ` SUBMIT `. Append **after** an accepted submit, with the timestamp
-from the shell; prose after the em dash is the free-text note (`PROBE` there for
-a human-directed LB probe):
-```bash
-ts=$(date -u +%FT%RZ)                 # e.g. 2026-06-05T14:07Z  (UTC, minute precision)
-printf '%s  SUBMIT %s cv=%s lb=%s — %s\n' "$ts" "$node" "$cv" "${lb:-pending}" "$note" >> comps/$slug/journal.md
-```
-When the async poll later lands a score that was `pending`, append the backfill
-line (never edit the SUBMIT line):
-```bash
-printf '%s  LB %s lb=%s — async score landed\n' "$(date -u +%FT%RZ)" "$node" "$lb" >> comps/$slug/journal.md
-```
-
----
-
-## 7 · Re-render, log the gap (artifact-then-mark, never auto-demote)
-
-1. In `comps/$slug/nodes/$node/node.md` frontmatter, **only now** that the
-   journal line exists (Hard rule 5 — artifact then mark), set
-   `lb: <public score>` (or `lb: pending` if the poll window closed unscored).
-2. `uv run tools/render_state.py comps/$slug` — the SUBMIT/LB lines flow into
-   `state.md`'s ledger table and the node's `lb` cell automatically.
-3. **Log the CV↔LB gap as a diagnostic, never an auto-demote** (Hard rule 6) — a
-   `NOTE` line if it's notable. A large gap is something to *surface to the
-   human* (and consider a one-off adversarial-validation diagnostic next round),
-   not a reason to change the champion. The champion is decided by CV
-   (`PROMOTE` lines); submitting does not re-rank it.
-
----
-
-## Done — closing readout
-
-State, in plain language: which node was submitted, its CV, the public score (or
-`pending`), the CV↔LB gap, and how many of the day's slots remain. Point to the
-journal's SUBMIT lines and the node dir for full detail. If the budget was
-already exhausted, say so and when the next slot opens (00:00 UTC).

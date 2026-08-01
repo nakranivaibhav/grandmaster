@@ -68,7 +68,10 @@ private + attached.
 - **`no kernel image is available for execution` (CUDA arch error):** the session's
   GPU is newer than the env's torch build. Tell the human to switch Accelerator to
   **T4 / P100** (or use the latest environment). Not a code bug.
-- **Submitting:** the human submits from a **committed version's Output tab**
-  (Save Version first), not the interactive editor. The file must be `submission.csv`.
+- **Submitting:** this skill only PUBLISHES a notebook for review. To actually spend a
+  slot from a kernel — including the notebooks-only competitions where a CSV upload can
+  never score — use `/kaggle-submit`, which drives `competition_submit_code` with an
+  explicit `kernel_version`. (A human can also submit from a committed version's Output
+  tab, Save Version first; the file must be `submission.csv`.)
 - One-time human gates (accept rules, phone-verify) and the daily submission limit
   still apply — see `kaggle-io`.
