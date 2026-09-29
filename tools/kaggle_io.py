@@ -131,6 +131,57 @@ def cmd_submit(slug: str, file: str, message: str) -> int:
     return r.returncode
 
 
+def kernel_version(ref: str) -> int:
+    """Current version number of a kernel, as `<user>/<slug>` -> int.
+
+    Notebooks-only comps submit a KERNEL VERSION, not a file, and
+    `competition_submit_code` requires the version EXPLICITLY (passing None
+    returns a 403 that is *not* the rules/verification 403). The REST listing
+    returns `current_version_number: 0` for your own private kernels, so read it
+    off the single-kernel GET instead.
+    """
+    ensure_auth()
+    from kaggle.api.kaggle_api_extended import ApiGetKernelRequest, KaggleApi
+
+    user, slug = ref.split("/", 1)
+    api = KaggleApi(); api.authenticate()
+    with api.build_kaggle_client() as k:
+        req = ApiGetKernelRequest(); req.user_name = user; req.kernel_slug = slug
+        r = k.kernels.kernels_api_client.get_kernel(req)
+    return int(r.metadata.current_version_number)
+
+
+def cmd_kernel_version(ref: str) -> int:
+    print(kernel_version(ref))
+    return 0
+
+
+def cmd_submit_kernel(slug: str, kernel: str, message: str, version: int | None, output: str) -> int:
+    """Submit a kernel VERSION to a notebooks-only competition.
+
+    `--version` defaults to the kernel's current version, read live. The kernel
+    must already have run to COMPLETE and produced `--output` (default
+    submission.csv); Kaggle reruns it against the hidden test set.
+    """
+    ensure_auth()
+    from kaggle.api.kaggle_api_extended import KaggleApi
+
+    v = kernel_version(kernel) if version is None else int(version)
+    api = KaggleApi(); api.authenticate()
+    try:
+        r = api.competition_submit_code(
+            file_name=output, message=message, competition=slug,
+            kernel=kernel, kernel_version=v,
+        )
+    except Exception as e:  # surface the classified reason, don't swallow it
+        text = str(e)
+        print(f"kernel={kernel} version={v} FAILED class={classify_error(text)}", file=sys.stderr)
+        print(text[:2000], file=sys.stderr)
+        return 1
+    print(f"kernel={kernel} version={v} -> {r}")
+    return 0
+
+
 def cmd_passthrough(verb: list[str]) -> int:
     r = run_kaggle(verb)
     sys.stdout.write(r.stdout)
@@ -150,7 +201,7 @@ def read_budget(ledger: str, limit: int) -> dict:
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     used = 0
     p = Path(ledger)
-    journal_submit = re.compile(rf"^{today}T\S+\s+SUBMIT\b")
+    journal_submit = re.compile(rf"^{today}T\S+\s+SUBMIT\s")
     if p.exists():
         for line in p.read_text().splitlines():
             if line.startswith(f"| {today}") or journal_submit.match(line):
@@ -217,6 +268,7 @@ def _selftest() -> int:
             f"{today}T10:00Z  SUBMIT node_1 cv=0.12 lb=pending — first\n"
             f"{today}T10:05Z  SCORE node_2 status=valid cv=0.11 — not a submission\n"
             f"2000-01-01T00:00Z  SUBMIT node_0 cv=0.99 lb=1.0 — old\n"
+            f"{today}T11:00Z  SUBMIT-PLAN k9 — a PLAN line, not a submission\n"
         )
         b = read_budget(str(jrn), 5)
         assert b["used"] == 1 and b["remaining"] == 4, b
@@ -234,6 +286,8 @@ def main(argv: list[str] | None = None) -> int:
     sm = sub.add_parser("submissions"); sm.add_argument("slug")
     lb = sub.add_parser("leaderboard"); lb.add_argument("slug")
     bg = sub.add_parser("budget"); bg.add_argument("--ledger", required=True); bg.add_argument("--limit", type=int, required=True, help="daily_submission_limit from spec.md")
+    sk = sub.add_parser("submit-kernel"); sk.add_argument("slug"); sk.add_argument("--kernel", required=True, help="<user>/<kernel-slug>"); sk.add_argument("--message", required=True); sk.add_argument("--version", type=int, default=None); sk.add_argument("--output", default="submission.csv")
+    kv = sub.add_parser("kernel-version"); kv.add_argument("ref", help="<user>/<kernel-slug>")
     ce = sub.add_parser("classify-error"); ce.add_argument("--text", required=True)
 
     a = p.parse_args(argv)
@@ -249,6 +303,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_passthrough(["competitions", "leaderboard", "-c", a.slug, "-s"])
     if a.cmd == "budget":
         return cmd_budget(a.ledger, a.limit)
+    if a.cmd == "submit-kernel":
+        return cmd_submit_kernel(a.slug, a.kernel, a.message, a.version, a.output)
+    if a.cmd == "kernel-version":
+        return cmd_kernel_version(a.ref)
     if a.cmd == "classify-error":
         print(classify_error(a.text)); return 0
     p.print_help()

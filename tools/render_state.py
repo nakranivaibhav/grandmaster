@@ -69,6 +69,9 @@ def _parse_value(v: str):
         return v
 
 
+KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
 def parse_line(line: str) -> dict | None:
     """One journal line -> {ts, event, args(list), kv(dict), prose} or None."""
     m = TS_RE.match(line.strip())
@@ -82,8 +85,11 @@ def parse_line(line: str) -> dict | None:
             break
     args, kv = [], {}
     for tok in rest.split():
-        if "=" in tok:
-            k, _, v = tok.partition("=")
+        k, eq, v = tok.partition("=")
+        # Only an identifier-shaped key is a field. Prose comparisons ("<= 12 hours",
+        # "cv>=0.8") otherwise mint junk keys, and a junk key on a CORRECT line flips it
+        # from a harmless prose correction into a "sets unknown state" render error.
+        if eq and KEY_RE.fullmatch(k):
             kv[k] = _parse_value(v)
         else:
             args.append(tok)
@@ -107,6 +113,7 @@ def replay(events: list[dict]) -> dict:
     s = {
         "setup": {}, "stages": {}, "nodes": {}, "featuresets": {},
         "champion": None, "rounds": [], "submits": [], "outside": [], "errors": [],
+        "retracted": set(),
     }
     for e in events:
         ev, args, kv = e["event"], e["args"], e["kv"]
@@ -177,13 +184,29 @@ def replay(events: list[dict]) -> dict:
                 # live. It carries no state, so there is nothing to replay and nothing to
                 # validate a target against. A CORRECT that DOES carry key=value pairs is
                 # still an error when its node is unknown: that one is trying to set state.
-                pass
+                #
+                # RETRACTION. Such a line may also carry "retracts line N" (or "retracts
+                # lines N, M") in its prose, which drops the render error that line N
+                # raised. This exists because the journal is append-only: a verb typo —
+                # LAUNCH or SCORE aimed at a probe name instead of a node_NNNN directory —
+                # can never be edited out, so without a retraction its error is permanent.
+                # Permanent errors are the real damage: once the error list carries known
+                # noise, a NEW error (two champions, a ghost node) hides inside it and the
+                # channel stops being read. A retraction is deliberately narrow — it only
+                # silences the report, it replays no state, and a line that actually SET
+                # state (a CORRECT with kv) cannot be retracted this way.
+                for grp in re.findall(r"retracts? lines?\s+([\d,\s]+)", e["prose"] or ""):
+                    for num in re.findall(r"\d+", grp):
+                        s["retracted"].add(int(num))
             elif ev in ("SETUP", "STAGE", "FEATURESET", "REGISTER", "LAUNCH", "SCORE",
                         "PROMOTE", "LB", "CORRECT"):
                 s["errors"].append(f"line {e['lineno']}: {ev} references unknown target {node!r}")
         except Exception as ex:  # a malformed line must fail loudly, not silently
             s["errors"].append(f"line {e['lineno']}: {ev}: {ex}")
     # invariant: exactly one champion
+    if s["retracted"]:
+        s["errors"] = [x for x in s["errors"]
+                       if not (m := re.match(r"line (\d+):", x)) or int(m.group(1)) not in s["retracted"]]
     champs = [n for n, d in s["nodes"].items() if d["status"] == "champion"]
     if len(champs) > 1:
         s["errors"].append(f"INVARIANT: {len(champs)} champions: {champs}")
@@ -349,7 +372,17 @@ def _selftest() -> int:
         assert s2["nodes"]["node_0001"]["cv"] == 15.09
         # unknown target -> loud error
         (comp / "journal.md").open("a").write("2026-01-01T13:06Z  SCORE node_9999 status=valid cv=1 — ghost\n")
-        assert replay(parse_journal(comp / "journal.md"))["errors"]
+        s3 = replay(parse_journal(comp / "journal.md"))
+        assert s3["errors"]
+        ghost_line = int(s3["errors"][0].split()[1].rstrip(":"))
+        # a no-kv CORRECT naming that line retracts its error, and ONLY that one
+        (comp / "journal.md").open("a").write(
+            "2026-01-01T13:07Z  SCORE node_8888 status=valid cv=1 — second ghost\n")
+        (comp / "journal.md").open("a").write(
+            f"2026-01-01T13:08Z  CORRECT verbs — retracts line {ghost_line}, a verb typo\n")
+        s4 = replay(parse_journal(comp / "journal.md"))
+        assert len(s4["errors"]) == 1, s4["errors"]
+        assert "node_8888" in s4["errors"][0], s4["errors"]
     print("render_state selftest OK")
     return 0
 

@@ -1,5 +1,5 @@
 {
-  "autoCompactWindow": 180000,
+  "autoCompactWindow": 250000,
   "hooks": {
     "PostToolUse": [
       {
