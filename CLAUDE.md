@@ -13,7 +13,8 @@ The human never types `/kaggle-*`. On a pasted comp URL/slug, run the stages in
 order, advancing automatically: **kaggle-start → kaggle-eda → kaggle-validate →
 kaggle-baseline → kaggle-experiment** (terminal — grind forever).
 `kaggle-status` is read-only and also the resume entry. `kaggle-kernel` publishes
-a node as a private notebook — on request only.
+a node as a private notebook — on request only. `kaggle-study` walks a top
+solution with the human (3D page + chat) after a comp — on request only.
 
 - Fresh session: `uv run tools/render_state.py comps/<slug>`, read `state.md`,
   resume at the first unticked stage. Never restart a finished stage.
